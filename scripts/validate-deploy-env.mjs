@@ -56,6 +56,20 @@ function isValidPgUrl(v) {
   }
 }
 
+function pgUrlSslMode(v) {
+  try {
+    const u = new URL(v)
+    const sslmode = (u.searchParams.get('sslmode') || '').trim().toLowerCase()
+    return sslmode || null
+  } catch {
+    return null
+  }
+}
+
+function isAcceptableSslMode(sslmode) {
+  return sslmode === 'require' || sslmode === 'verify-ca' || sslmode === 'verify-full'
+}
+
 function supabaseProjectRefFromUrl(v) {
   try {
     const u = new URL(v)
@@ -155,6 +169,24 @@ if (supabaseDbUrl && !isValidPgUrl(supabaseDbUrl)) {
 }
 if (requireDbAssertions && !['0', '1'].includes(requireDbAssertions)) {
   errors.push('REQUIRE_DB_ASSERTIONS must be 0 or 1')
+}
+
+if (dbUrl) {
+  const sslmode = pgUrlSslMode(dbUrl)
+  if (!sslmode) {
+    errors.push('DATABASE_URL must include ?sslmode=require (or verify-ca / verify-full)')
+  } else if (!isAcceptableSslMode(sslmode)) {
+    errors.push(`DATABASE_URL sslmode must be require/verify-ca/verify-full (got ${sslmode})`)
+  }
+}
+
+if (supabaseDbUrl) {
+  const sslmode = pgUrlSslMode(supabaseDbUrl)
+  if (!sslmode) {
+    errors.push('SUPABASE_DB_URL must include ?sslmode=require (or verify-ca / verify-full)')
+  } else if (!isAcceptableSslMode(sslmode)) {
+    errors.push(`SUPABASE_DB_URL sslmode must be require/verify-ca/verify-full (got ${sslmode})`)
+  }
 }
 
 if (viteSupabaseUrl && supabaseUrl) {
