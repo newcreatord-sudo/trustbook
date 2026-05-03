@@ -87,7 +87,7 @@
     "dotenv": "^17.2.1",
     "express": "^4.21.2",
     "lucide-react": "^0.511.0",
-    "nodemailer": "^6.9.14",
+    "nodemailer": "^8.0.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.3.0",
