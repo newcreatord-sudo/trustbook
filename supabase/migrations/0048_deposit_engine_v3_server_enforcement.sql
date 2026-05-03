@@ -1,0 +1,330 @@
+-- Migration 0048: Deposit Engine v3 server enforcement
+-- Aligns DB booking enforcement with the frontend/domain deposit engine.
+
+CREATE OR REPLACE FUNCTION public.compute_deposit_cents_v2(
+  p_business_id uuid,
+  p_service_id uuid,
+  p_customer_effective_score int
+)
+RETURNS TABLE (
+  deposit_amount_cents int,
+  requires_manual_approval boolean
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  b record;
+  svc_price int := 0;
+  score int := greatest(0, least(100, coalesce(p_customer_effective_score, 80)));
+  risk_level text := 'green';
+  risky_threshold int := 60;
+  rule_type text := null;
+  rule_val numeric := 0;
+  calc_amount int := 0;
+  man_app boolean := false;
+  j jsonb := null;
+  is_risky boolean := false;
+BEGIN
+  SELECT *
+  INTO b
+  FROM public.businesses
+  WHERE id = p_business_id;
+
+  IF b IS NULL THEN
+    RAISE EXCEPTION 'business_not_found';
+  END IF;
+
+  SELECT price_cents INTO svc_price
+  FROM public.services
+  WHERE id = p_service_id AND business_id = p_business_id;
+
+  IF svc_price IS NULL THEN
+    svc_price := 0;
+  END IF;
+
+  IF coalesce(b.deposit_mode, 'none') = 'none' THEN
+    RETURN QUERY SELECT 0, false;
+    RETURN;
+  END IF;
+
+  -- Risk-level buckets used by dynamic mode.
+  IF score < 60 THEN
+    risk_level := 'red';
+  ELSIF score < 75 THEN
+    risk_level := 'yellow';
+  ELSE
+    risk_level := 'green';
+  END IF;
+
+  IF b.deposit_mode = 'everyone' THEN
+    rule_type := coalesce(b.deposit_value_type, 'percentage');
+    IF rule_type = 'percentage' THEN
+      rule_val := coalesce(b.deposit_percent, 0);
+    ELSE
+      rule_val := coalesce(b.deposit_fixed_cents, 0);
+    END IF;
+  ELSIF b.deposit_mode = 'risk_based' THEN
+    risky_threshold := greatest(0, least(100, coalesce(b.deposit_risky_threshold, 60)));
+    is_risky := score < risky_threshold;
+    IF NOT is_risky THEN
+      RETURN QUERY SELECT 0, false;
+      RETURN;
+    END IF;
+    rule_type := coalesce(b.deposit_value_type, 'percentage');
+    IF rule_type = 'percentage' THEN
+      rule_val := coalesce(b.deposit_percent, 0);
+    ELSE
+      rule_val := coalesce(b.deposit_fixed_cents, 0);
+    END IF;
+  ELSIF b.deposit_mode = 'dynamic' THEN
+    IF risk_level = 'green' THEN
+      j := coalesce(b.deposit_green_rule, '{"type":"percentage","value":0}'::jsonb);
+    ELSIF risk_level = 'yellow' THEN
+      j := coalesce(b.deposit_yellow_rule, '{"type":"percentage","value":10}'::jsonb);
+    ELSE
+      j := coalesce(b.deposit_red_rule, '{"type":"percentage","value":30}'::jsonb);
+      man_app := coalesce(b.manual_approval_for_high_risk, true);
+    END IF;
+    rule_type := coalesce(j->>'type', 'percentage');
+    rule_val := coalesce((j->>'value')::numeric, 0);
+  END IF;
+
+  IF rule_type IS NULL OR rule_val <= 0 THEN
+    RETURN QUERY SELECT 0, man_app;
+    RETURN;
+  END IF;
+
+  IF rule_type = 'percentage' THEN
+    rule_val := greatest(0, least(100, rule_val));
+    IF svc_price <= 0 THEN
+      calc_amount := 0;
+    ELSE
+      calc_amount := round((svc_price * rule_val) / 100)::int;
+    END IF;
+  ELSE
+    calc_amount := greatest(0, rule_val::int);
+  END IF;
+
+  -- Apply min/max only when there is a meaningful base amount, or when fixed policy explicitly sets an amount.
+  IF rule_type = 'fixed_amount' OR calc_amount > 0 THEN
+    IF coalesce(b.deposit_min_cents, 0) > 0 THEN
+      calc_amount := greatest(calc_amount, b.deposit_min_cents);
+    END IF;
+    IF coalesce(b.deposit_max_cents, 0) > 0 THEN
+      calc_amount := least(calc_amount, b.deposit_max_cents);
+    END IF;
+  END IF;
+
+  -- Never exceed service price when available.
+  IF svc_price > 0 THEN
+    calc_amount := least(calc_amount, svc_price);
+  END IF;
+
+  RETURN QUERY SELECT greatest(0, calc_amount), man_app;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION public.create_booking_v2(
+  p_business_id uuid,
+  p_service_id uuid,
+  p_start_at timestamptz,
+  p_end_at timestamptz
+)
+RETURNS public.bookings
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  uid uuid;
+  b record;
+  svc record;
+  eff int;
+  dep int;
+  man_app boolean;
+  dep_status deposit_status;
+  requires_approval boolean;
+  next_status booking_status;
+  booking_row public.bookings;
+  reasons text[] := array[]::text[];
+  no_show_cnt int := 0;
+  req_duration_min int := 0;
+  local_start timestamp;
+  local_end timestamp;
+  local_weekday int;
+BEGIN
+  uid := auth.uid();
+  if uid is null then
+    raise exception 'not_authenticated';
+  end if;
+
+  if p_start_at is null or p_end_at is null or p_end_at <= p_start_at then
+    raise exception 'invalid_booking_interval';
+  end if;
+
+  select
+    id,
+    approval_mode,
+    required_reliability_min,
+    is_paused,
+    block_reliability_threshold,
+    auto_block_no_show_count,
+    booking_lead_time_min,
+    timezone
+  into b
+  from public.businesses
+  where id = p_business_id;
+
+  if b is null then
+    raise exception 'business_not_found';
+  end if;
+  if coalesce(b.is_paused, false) then
+    raise exception 'business_paused';
+  end if;
+
+  req_duration_min := floor(extract(epoch from (p_end_at - p_start_at)) / 60);
+  if req_duration_min <= 0 then
+    raise exception 'invalid_duration';
+  end if;
+
+  select id, duration_min, is_active
+  into svc
+  from public.services
+  where id = p_service_id
+    and business_id = p_business_id;
+
+  if svc is null then
+    raise exception 'service_not_found';
+  end if;
+  if coalesce(svc.is_active, false) is not true then
+    raise exception 'service_inactive';
+  end if;
+  if coalesce(svc.duration_min, 0) <= 0 or req_duration_min <> svc.duration_min then
+    raise exception 'invalid_duration';
+  end if;
+
+  if p_start_at < now() + make_interval(mins => greatest(0, coalesce(b.booking_lead_time_min, 0))) then
+    raise exception 'lead_time_not_respected';
+  end if;
+
+  local_start := p_start_at at time zone b.timezone;
+  local_end := p_end_at at time zone b.timezone;
+  local_weekday := extract(dow from local_start);
+
+  if local_end::date <> local_start::date then
+    raise exception 'outside_opening_hours';
+  end if;
+
+  if not exists (
+    select 1
+    from public.business_opening_windows w
+    where w.business_id = p_business_id
+      and w.weekday = local_weekday
+      and w.start_time <= local_start::time
+      and w.end_time >= local_end::time
+  ) then
+    raise exception 'outside_opening_hours';
+  end if;
+
+  if exists (
+    select 1
+    from public.business_closures c
+    where c.business_id = p_business_id
+      and c.start_at < p_end_at
+      and c.end_at > p_start_at
+  ) then
+    raise exception 'business_closed';
+  end if;
+
+  if exists (
+    select 1 from public.business_customer_blocks blk
+    where blk.business_id = p_business_id and blk.customer_user_id = uid
+  ) then
+    raise exception 'blocked_by_business';
+  end if;
+
+  if exists (
+    select 1 from public.bookings
+    where business_id = p_business_id
+      and status in ('requested', 'pending_approval', 'pending_deposit', 'requires_deposit', 'pending_payment_setup', 'confirmed', 'change_proposed', 'completed', 'no_show', 'late_cancel')
+      and start_at < p_end_at
+      and end_at > p_start_at
+  ) then
+    raise exception 'slot_unavailable';
+  end if;
+
+  eff := public.effective_reliability_score(uid);
+  select coalesce(no_show_count, 0) into no_show_cnt from public.customer_reliability where user_id = uid;
+
+  if eff < public.clamp_int(b.block_reliability_threshold, 0, 100) then
+    raise exception 'reliability_too_low';
+  end if;
+
+  if no_show_cnt >= greatest(0, coalesce(b.auto_block_no_show_count, 3)) then
+    raise exception 'too_many_no_shows';
+  end if;
+
+  SELECT deposit_amount_cents, requires_manual_approval INTO dep, man_app
+  FROM public.compute_deposit_cents_v2(p_business_id, p_service_id, eff);
+
+  dep_status := case when dep > 0 then 'required' else 'not_required' end;
+
+  requires_approval :=
+    b.approval_mode = 'manual'
+    or (b.approval_mode = 'risk_based' and eff < public.clamp_int(b.required_reliability_min, 0, 100))
+    or no_show_cnt >= 2
+    or man_app;
+
+  if requires_approval then
+    next_status := 'pending_approval';
+    reasons := reasons || array['requires_approval'];
+  elsif dep > 0 then
+    next_status := 'requires_deposit';
+    reasons := reasons || array['requires_deposit'];
+  else
+    next_status := 'confirmed';
+  end if;
+
+  insert into public.bookings (
+    customer_user_id,
+    business_id,
+    service_id,
+    start_at,
+    end_at,
+    status,
+    deposit_status,
+    deposit_amount_cents,
+    confirmed_at
+  ) values (
+    uid,
+    p_business_id,
+    p_service_id,
+    p_start_at,
+    p_end_at,
+    next_status,
+    dep_status,
+    dep,
+    case when next_status = 'confirmed' then now() else null end
+  )
+  returning * into booking_row;
+
+  perform public.insert_booking_event(booking_row.id, 'risk_policy_applied', 'all', uid, jsonb_build_object(
+    'effective_score', eff,
+    'required_reliability_min', b.required_reliability_min,
+    'approval_mode', b.approval_mode,
+    'deposit_cents', dep,
+    'status', next_status,
+    'reasons', reasons,
+    'block_reliability_threshold', b.block_reliability_threshold,
+    'auto_block_no_show_count', b.auto_block_no_show_count,
+    'customer_no_show_count', no_show_cnt,
+    'timezone', b.timezone
+  ));
+
+  return booking_row;
+end;
+$$;

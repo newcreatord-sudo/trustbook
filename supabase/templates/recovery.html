@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <title>Reimposta la password</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;-webkit-font-smoothing:antialiased;">
+  <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+    Richiesta di reimpostazione password per il tuo account TrustBook.
+  </div>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+          <tr>
+            <td style="padding:28px 28px 20px;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);color:#f8fafc;">
+              <p style="margin:0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.85;">TrustBook</p>
+              <h1 style="margin:10px 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;line-height:1.25;font-weight:600;">
+                Reimposta la password
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#334155;">
+              <p style="margin:0 0 16px;">Ciao,</p>
+              <p style="margin:0 0 16px;">
+                Abbiamo ricevuto una richiesta di reimpostazione password per l&apos;account associato a:
+              </p>
+              <p style="margin:0 0 20px;font-size:13px;color:#64748b;"><strong>Email:</strong> {{ .Email }}</p>
+
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:28px auto;">
+                <tr>
+                  <td align="center" bgcolor="#2563eb" style="border-radius:10px;">
+                    <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer"
+                       style="display:inline-block;padding:14px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">
+                      Scegli una nuova password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.5;">
+                Link alternativo:
+              </p>
+              <p style="margin:0 0 24px;font-size:12px;word-break:break-all;color:#2563eb;">
+                {{ .ConfirmationURL }}
+              </p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffbeb;border-radius:10px;border:1px solid #fde68a;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0;font-size:13px;color:#92400e;line-height:1.45;">
+                      Se non hai richiesto tu il reset, puoi ignorare questa email: la password resterà invariata.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:24px 0 0;font-size:13px;color:#94a3b8;line-height:1.45;">
+                Il link ha una scadenza limitata per motivi di sicurezza.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px 24px;border-top:1px solid #f1f5f9;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#94a3b8;line-height:1.45;">
+              <p style="margin:0;">
+                Servizio messaggi automatico · Non rispondere a questa email.<br />
+                {{ .SiteURL }}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

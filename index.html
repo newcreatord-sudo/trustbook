@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Trae Project</title>
+    <script type="module">
+      if (import.meta.hot?.on) {
+        import.meta.hot.on('vite:error', (error) => {
+          if (error.err) {
+            console.error(
+              [error.err.message, error.err.frame].filter(Boolean).join('\n'),
+            )
+          }
+        })
+      }
+    </script>
+  </head>
+  <body>
+    <div id="boot" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#070A12;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;">
+      <div style="max-width:520px;padding:24px;border:1px solid rgba(255,255,255,0.12);border-radius:18px;background:rgba(255,255,255,0.04);">
+        <div style="font-weight:700;font-size:14px;letter-spacing:0.02em;">Trustbook</div>
+        <div style="margin-top:6px;font-size:13px;opacity:0.8;">Caricamento…</div>
+        <div id="boot-details" style="margin-top:10px;font-size:12px;opacity:0.65;"></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var details = document.getElementById('boot-details')
+        var show = function (title, msg) {
+          var boot = document.getElementById('boot')
+          if (!boot) return
+          boot.style.background = '#120707'
+          boot.querySelector('div').style.borderColor = 'rgba(239,68,68,0.35)'
+          boot.querySelector('div').style.background = 'rgba(239,68,68,0.10)'
+          boot.querySelector('div').children[1].textContent = title
+          if (details) details.textContent = msg
+        }
+        window.addEventListener('error', function (e) {
+          var msg = String(e && e.message ? e.message : e)
+          try {
+            var t = e && e.target
+            if (t && t.tagName === 'SCRIPT' && t.src) {
+              msg = msg + ' | src=' + t.src
+            }
+          } catch (_) {}
+          show('Errore caricamento', msg)
+        }, true)
+        window.addEventListener('unhandledrejection', function (e) {
+          var reason = e && e.reason ? e.reason : e
+          show('Errore caricamento', String(reason && reason.message ? reason.message : reason))
+        })
+
+        try {
+          var scripts = document.querySelectorAll('script[type="module"][src]')
+          if (scripts && scripts.length) {
+            var src = scripts[0].getAttribute('src')
+            if (details && src) details.textContent = 'Script: ' + src
+
+            Promise.all(
+              Array.prototype.map.call(scripts, function (s) {
+                var u = s.getAttribute('src')
+                if (!u) return Promise.resolve(null)
+                return fetch(u, { method: 'GET', cache: 'no-store' })
+                  .then(function (r) {
+                    return {
+                      url: u,
+                      ok: r.ok,
+                      status: r.status,
+                      contentType: r.headers.get('content-type') || '',
+                    }
+                  })
+                  .catch(function (err) {
+                    return { url: u, ok: false, status: -1, contentType: '', error: String(err) }
+                  })
+              }),
+            ).then(function (results) {
+              var bad = (results || []).filter(function (r) {
+                if (!r) return false
+                return !r.ok || (r.contentType && r.contentType.indexOf('text/html') !== -1)
+              })
+              if (bad.length) {
+                show(
+                  'Errore caricamento',
+                  bad
+                    .map(function (r) {
+                      return r.url + ' status=' + r.status + ' ct=' + (r.contentType || '—')
+                    })
+                    .join(' | '),
+                )
+              }
+            })
+          }
+        } catch (_) {}
+        setTimeout(function () {
+          var boot = document.getElementById('boot')
+          if (!boot) return
+          if (details) details.textContent = 'Se resta bloccato, fai refresh (Ctrl+F5).'
+        }, 2500)
+      })()
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
