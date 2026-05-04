@@ -42,10 +42,11 @@
 ## Smoke test live (HTTP)
 - Core (health + auth dry-run + ops/cron se configurati):
   - `node scripts/smoke-live-core.mjs --base-url=https://<dominio>`
+- E2E (creazione utenti test, business, booking, approve/complete, cancel, recensione, notifiche):
+  - `node scripts/smoke-live-e2e.mjs --base-url=https://<dominio>`
 
 ## Smoke test live (manuale UI)
 - Auth: signup + conferma email, login, logout.
 - Reset password: richiesta link + atterraggio `/reset-password` + cambio password.
 - Cliente: esplora → scheda attività → prenotazione → caparra (se payments abilitate) → cancellazione.
 - Attività: dashboard → calendario → notifiche → staff → planimetria/resources → AI tools (se abilitati).
-

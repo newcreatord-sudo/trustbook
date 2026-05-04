@@ -326,16 +326,12 @@ async function transitionBookingState(params: {
   if (error) throw error
 }
 
-router.use((_req: Request, res: Response, next) => {
-  if (!isPaymentsEnabled()) {
-    res.status(503).json({ success: false, error: 'Payments are currently disabled by configuration' })
-    return
-  }
-  next()
-})
-
 router.post('/deposit/checkout', async (req: Request, res: Response) => {
   try {
+    if (!isPaymentsEnabled()) {
+      res.status(503).json({ success: false, error: 'Payments are currently disabled by configuration' })
+      return
+    }
     const userId = await requireUserId(req)
     if (!userId) {
       res.status(401).json({ success: false, error: 'Unauthorized' })
@@ -477,6 +473,10 @@ router.post('/deposit/checkout', async (req: Request, res: Response) => {
 
 router.post('/deposit/verify', async (req: Request, res: Response) => {
   try {
+    if (!isPaymentsEnabled()) {
+      res.status(503).json({ success: false, error: 'Payments are currently disabled by configuration' })
+      return
+    }
     const userId = await requireUserId(req)
     if (!userId) {
       res.status(401).json({ success: false, error: 'Unauthorized' })
@@ -629,6 +629,10 @@ router.post('/deposit/cancel', async (req: Request, res: Response) => {
     let nextDepositStatus = b.deposit_status
     if (b.deposit_status === 'paid' && b.deposit_amount_cents > 0) {
       if (inTime) {
+        if (!isPaymentsEnabled()) {
+          res.status(503).json({ success: false, error: 'Refund requires payments to be enabled' })
+          return
+        }
         const payment = await getLatestPaymentByBooking({ sbAdmin, bookingId })
         if (payment.status !== 'paid' || !payment.paymentIntentId) {
           res.status(409).json({ success: false, error: 'Missing payment reference for refund' })
@@ -716,6 +720,10 @@ router.post('/deposit/cancel-by-business', async (req: Request, res: Response) =
 
     let nextDepositStatus = b.deposit_status
     if (b.deposit_status === 'paid' && b.deposit_amount_cents > 0) {
+      if (!isPaymentsEnabled()) {
+        res.status(503).json({ success: false, error: 'Refund requires payments to be enabled' })
+        return
+      }
       const payment = await getLatestPaymentByBooking({ sbAdmin, bookingId })
       if (payment.status !== 'paid' || !payment.paymentIntentId) {
         res.status(409).json({ success: false, error: 'Missing payment reference for refund' })
