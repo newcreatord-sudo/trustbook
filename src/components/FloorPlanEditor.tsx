@@ -398,15 +398,30 @@ export default function FloorPlanEditor({
   }, [])
 
   useEffect(() => {
+    let alive = true
     if (!backgroundUrl) {
       setBgImage(null)
-      return
+      return () => {
+        alive = false
+      }
     }
     const img = new Image()
     img.decoding = 'async'
+    img.onload = () => {
+      if (!alive) return
+      setBgImage(img)
+    }
+    img.onerror = () => {
+      if (!alive) return
+      setBgImage(null)
+    }
     img.src = backgroundUrl
-    img.onload = () => setBgImage(img)
-    img.onerror = () => setBgImage(null)
+    return () => {
+      alive = false
+      img.onload = null
+      img.onerror = null
+      img.src = ''
+    }
   }, [backgroundUrl])
 
   const nodeAt = useCallback(

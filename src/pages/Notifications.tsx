@@ -83,20 +83,26 @@ export default function Notifications() {
         { event: '*', schema: 'public', table: 'notifications', filter: `recipient_user_id=eq.${userId}` },
         () => {
           void (async () => {
-            const nowIso = new Date().toISOString()
-            const { data } = await supabase
-              .from('notifications')
-              .select('*')
-              .eq('recipient_user_id', userId)
-              .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
-              .order('created_at', { ascending: false })
-              .limit(50)
-            if (!mounted) return
-            setRows(
-              sortNotifications(
-                ((((data as unknown[]) ?? []) as unknown[]).map((x) => safeParseNotificationRow(x)).filter(Boolean) as NotificationRow[]) ?? [],
-              ),
-            )
+            try {
+              const nowIso = new Date().toISOString()
+              const { data, error } = await supabase
+                .from('notifications')
+                .select('*')
+                .eq('recipient_user_id', userId)
+                .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
+                .order('created_at', { ascending: false })
+                .limit(50)
+              if (!mounted) return
+              if (error) throw error
+              setRows(
+                sortNotifications(
+                  ((((data as unknown[]) ?? []) as unknown[]).map((x) => safeParseNotificationRow(x)).filter(Boolean) as NotificationRow[]) ??
+                    [],
+                ),
+              )
+            } catch (e: unknown) {
+              void e
+            }
           })()
         },
       )

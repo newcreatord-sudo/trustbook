@@ -99,14 +99,15 @@ export default function AppShell(props: { children: React.ReactNode }) {
 
         const loadUnreadNotifications = async () => {
           const nowIso = new Date().toISOString()
-          const { count, error } = await supabase
+          const { data, error } = await supabase
             .from('notifications')
-            .select('id', { count: 'exact', head: true })
+            .select('id')
             .eq('recipient_user_id', user.id)
             .is('read_at', null)
             .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
+            .limit(99)
           if (error) throw error
-          const shown = Math.min(99, count ?? 0)
+          const shown = Math.min(99, Array.isArray(data) ? data.length : 0)
           return shown > 0 ? ({ label: 'Notifiche', to: '/notifiche', count: shown } as const) : null
         }
 
@@ -135,21 +136,23 @@ export default function AppShell(props: { children: React.ReactNode }) {
 
           const now = new Date()
           const next24h = new Date(now.getTime() + 24 * 60 * 60_000)
-          const { count: reminderCount, error: remErr } = await supabase
+          const { data: reminderRows, error: remErr } = await supabase
             .from('bookings')
-            .select('id', { count: 'exact', head: true })
+            .select('id')
             .eq('customer_user_id', user.id)
             .gte('start_at', now.toISOString())
             .lt('start_at', next24h.toISOString())
             .in('status', ['confirmed', 'pending_deposit', 'requires_deposit', 'pending_payment_setup', 'pending_approval'])
+            .limit(99)
           if (remErr) throw remErr
+          const reminderCount = Math.min(99, Array.isArray(reminderRows) ? reminderRows.length : 0)
 
           const next: Array<{ label: string; to: string; count: number }> = []
           const unreadNotifs = await loadUnreadNotifications()
           if (unreadNotifs) next.push(unreadNotifs)
           if (pendingDeposit) next.push({ label: 'Paga caparra', to: '/prenotazioni', count: pendingDeposit })
           if (changeProposed) next.push({ label: 'Proposte orario', to: '/prenotazioni', count: changeProposed })
-          if ((reminderCount ?? 0) > 0) next.push({ label: 'Promemoria 24h', to: '/prenotazioni', count: reminderCount ?? 0 })
+          if (reminderCount > 0) next.push({ label: 'Promemoria 24h', to: '/prenotazioni', count: reminderCount })
           const unread = await loadUnreadMessages({ to: '/prenotazioni', customerOnly: true })
           if (unread) next.push(unread)
           if (mounted) setNotifItems(next)

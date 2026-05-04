@@ -37,6 +37,22 @@ const supabaseAnon = readEnvAny([
 const appBaseUrl = readEnvAny(['APP_BASE_URL', 'VITE_APP_URL'])
 const baseUrlArg = process.argv.find((x) => x.startsWith('--base-url=')) ?? null
 const baseUrl = (baseUrlArg?.slice('--base-url='.length).trim() || appBaseUrl || 'http://127.0.0.1:3001').replace(/\/$/, '')
+const vercelBypass = readEnvAny(['VERCEL_AUTOMATION_BYPASS_SECRET'])
+
+function mergedHeaders(existing, extra) {
+  const h = new Headers(existing || undefined)
+  for (const [k, v] of Object.entries(extra || {})) {
+    if (typeof v === 'string') h.set(k, v)
+  }
+  return h
+}
+
+async function fetchTb(path, init) {
+  const url = path.startsWith('http') ? path : `${baseUrl}${path}`
+  const extra = vercelBypass ? { 'x-vercel-protection-bypass': vercelBypass } : null
+  const headers = extra ? mergedHeaders(init?.headers, extra) : init?.headers
+  return fetch(url, { ...(init || {}), headers })
+}
 
 if (!supabaseUrl) fail('Missing SUPABASE_URL or VITE_SUPABASE_URL')
 if (!supabaseAnon) fail('Missing SUPABASE_ANON_KEY (or VITE_* alias)')
@@ -44,11 +60,11 @@ if (!appBaseUrl) {
   process.stdout.write('[verify-auth-email-api] WARN missing APP_BASE_URL/VITE_APP_URL, fallback redirect may be implicit.\n')
 }
 
-const healthRes = await fetch(`${baseUrl}/api/health`)
+const healthRes = await fetchTb('/api/health')
 if (!healthRes.ok) fail(`Health endpoint failed with status ${healthRes.status}`)
 
 const smokeEmail = `qa-resend-${Date.now()}@example.com`
-const dryRunRes = await fetch(`${baseUrl}/api/auth/resend-confirmation`, {
+const dryRunRes = await fetchTb('/api/auth/resend-confirmation', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ email: smokeEmail, dryRun: true }),
