@@ -163,6 +163,21 @@ function mustSupabaseAdmin() {
   })
 }
 
+function safeErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === 'string') return e
+  if (e && typeof e === 'object') {
+    const anyE = e as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown }
+    const msg = typeof anyE.message === 'string' ? anyE.message : null
+    const code = typeof anyE.code === 'string' ? anyE.code : null
+    const details = typeof anyE.details === 'string' ? anyE.details : null
+    const hint = typeof anyE.hint === 'string' ? anyE.hint : null
+    const out = [msg, code ? `code=${code}` : null, details, hint].filter((x) => typeof x === 'string' && x.trim().length > 0)
+    if (out.length) return out.join(' | ')
+  }
+  return 'Service error'
+}
+
 function isBookingPaymentClosedStatus(status: string): boolean {
   return (
     status === 'cancelled_by_customer' ||
@@ -467,7 +482,7 @@ router.post('/deposit/checkout', async (req: Request, res: Response) => {
 
     res.status(200).json({ success: true, url: session.url })
   } catch (e: unknown) {
-    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }
 })
 
@@ -586,7 +601,7 @@ router.post('/deposit/verify', async (req: Request, res: Response) => {
 
     res.status(200).json({ success: true, paid: false, bookingId, status: paymentStatus })
   } catch (e: unknown) {
-    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }
 })
 
@@ -674,7 +689,7 @@ router.post('/deposit/cancel', async (req: Request, res: Response) => {
       cancelledAt: now.toISOString(),
     })
   } catch (e: unknown) {
-    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }
 })
 
@@ -756,7 +771,7 @@ router.post('/deposit/cancel-by-business', async (req: Request, res: Response) =
       cancelledAt: new Date().toISOString(),
     })
   } catch (e: unknown) {
-    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }
 })
 
@@ -813,7 +828,7 @@ router.post('/deposit/forfeit-by-business', async (req: Request, res: Response) 
 
     res.status(200).json({ success: true, bookingId, depositStatus: nextDepositStatus })
   } catch (e: unknown) {
-    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }
 })
 
@@ -914,7 +929,7 @@ router.get('/business/payments', async (req: Request, res: Response) => {
 
     res.status(200).json({ success: true, rows: enriched })
   } catch (e: unknown) {
-    res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }
 })
 
