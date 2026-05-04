@@ -47,6 +47,16 @@ La migrazione `0060_remove_auth_auto_confirm_trigger.sql` rimuove il trigger che
    - **Site URL**: URL pubblico dell’app (es. `https://…`), senza slash finale.
    - **Redirect URLs**: includi l’origine dell’app e la pagina di callback esatta usata dall’SDK, ad es. `https://TUO_DOMINIO/auth/callback` e `http://localhost:5173/auth/callback` per lo sviluppo.
 
+   Setup consigliato “massimo livello” con due ambienti separati:
+   - **PROD**: `https://trustbook.it`
+     - Redirect:
+       - `https://trustbook.it/auth/callback`
+       - `https://trustbook.it/reset-password`
+   - **STAGING**: `https://staging.trustbook.it`
+     - Redirect:
+       - `https://staging.trustbook.it/auth/callback`
+       - `https://staging.trustbook.it/reset-password`
+
 2. **Authentication → Providers → Email**
    - Lascia **Confirm email** attiva per il flusso con messaggio professionale.
    - Configura **SMTP personalizzato** (SendGrid, Postmark, SES, ecc.) con mittente coerente (`Sender email`, nome visualizzato). Senza SMTP affidabile molti messaggi finiscono in spam o non partono.
