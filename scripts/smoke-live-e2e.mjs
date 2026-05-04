@@ -80,6 +80,11 @@ const supabaseAnon = readEnvAny(['SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 
 if (!supabaseUrl) fail('Missing SUPABASE_URL/VITE_SUPABASE_URL')
 if (!supabaseAnon) fail('Missing SUPABASE_ANON_KEY/VITE_SUPABASE_ANON_KEY')
 const supabaseServiceRole = readEnvAny(['SUPABASE_SERVICE_ROLE_KEY'])
+const sbService = supabaseServiceRole
+  ? createClient(supabaseUrl, supabaseServiceRole, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    })
+  : null
 
 const vercelBypass = readEnvAny(['VERCEL_AUTOMATION_BYPASS_SECRET'])
 const adminSignupToken = readEnvAny(['AUTH_ADMIN_SIGNUP_TOKEN', 'ADMIN_SIGNUP_TOKEN'])
@@ -320,6 +325,21 @@ async function markBookingStatus(sb, params) {
   return data
 }
 
+async function forceBookingInPastForReview(params) {
+  if (!sbService) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY (required for review time-travel)')
+  const now = new Date()
+  const endAt = new Date(now.getTime() - 45 * 60_000)
+  const startAt = new Date(now.getTime() - 75 * 60_000)
+  const patch = {
+    start_at: startAt.toISOString(),
+    end_at: endAt.toISOString(),
+    status: 'completed',
+    completed_at: now.toISOString(),
+  }
+  const { error } = await sbService.from('bookings').update(patch).eq('id', params.bookingId)
+  if (error) throw error
+}
+
 async function assertHasNotifications(sb, userId) {
   const { data, error } = await sb
     .from('notifications')
@@ -440,6 +460,8 @@ if (booking2.status === 'requested' || booking2.status === 'pending_approval') {
     patch: { status: 'completed', completed_at: now },
   })
 }
+
+await forceBookingInPastForReview({ bookingId: booking2.id })
 
 {
   const { error } = await sbCustomer.from('reviews').insert({
