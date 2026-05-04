@@ -105,14 +105,29 @@ if (cronSecret) {
 }
 
 {
-  const tok = opsToken || cronSecret
-  if (tok) {
-    const opsRes = await fetchTb('/api/ops/review-reports/list', {
+  const primary = opsToken || null
+  const fallback = cronSecret || null
+  const canFallback = Boolean(primary && fallback && primary !== fallback)
+
+  const doRequest = async (tok) =>
+    fetchTb('/api/ops/review-reports/list', {
       method: 'POST',
       headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ limit: 1 }),
     })
-    await expectOk(opsRes, `POST /api/ops/review-reports/list (via ${opsToken ? 'OPS_REVIEW_REPORTS_TOKEN' : 'CRON_SECRET'})`)
+
+  let used = primary || fallback
+  if (used) {
+    let opsRes = await doRequest(used)
+    if (canFallback && opsRes.status === 401) {
+      used = fallback
+      opsRes = await doRequest(used)
+    }
+
+    await expectOk(
+      opsRes,
+      `POST /api/ops/review-reports/list (via ${used === primary ? 'OPS_REVIEW_REPORTS_TOKEN' : 'CRON_SECRET'})`,
+    )
     const opsJson = await opsRes.json().catch(() => null)
     if (!opsJson || opsJson.success !== true || typeof opsJson.count !== 'number' || !Array.isArray(opsJson.rows)) {
       fail('ops review-reports payload invalid')
