@@ -102,27 +102,21 @@ if (cronSecret) {
   await expectOk(dueRes, 'GET /api/cron/notifications/due')
   const dueJson = await dueRes.json().catch(() => null)
   if (!dueJson || dueJson.success !== true || typeof dueJson.processed !== 'number') fail('cron due payload invalid')
+}
 
-  const opsRes = await fetchTb('/api/ops/review-reports/list', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cronSecret}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ limit: 1 }),
-  })
-  await expectOk(opsRes, 'POST /api/ops/review-reports/list (via CRON_SECRET)')
-  const opsJson = await opsRes.json().catch(() => null)
-  if (!opsJson || opsJson.success !== true || typeof opsJson.count !== 'number' || !Array.isArray(opsJson.rows)) {
-    fail('ops review-reports payload invalid')
-  }
-} else if (opsToken) {
-  const opsRes = await fetchTb('/api/ops/review-reports/list', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${opsToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ limit: 1 }),
-  })
-  await expectOk(opsRes, 'POST /api/ops/review-reports/list')
-  const opsJson = await opsRes.json().catch(() => null)
-  if (!opsJson || opsJson.success !== true || typeof opsJson.count !== 'number' || !Array.isArray(opsJson.rows)) {
-    fail('ops review-reports payload invalid')
+{
+  const tok = opsToken || cronSecret
+  if (tok) {
+    const opsRes = await fetchTb('/api/ops/review-reports/list', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 1 }),
+    })
+    await expectOk(opsRes, `POST /api/ops/review-reports/list (via ${opsToken ? 'OPS_REVIEW_REPORTS_TOKEN' : 'CRON_SECRET'})`)
+    const opsJson = await opsRes.json().catch(() => null)
+    if (!opsJson || opsJson.success !== true || typeof opsJson.count !== 'number' || !Array.isArray(opsJson.rows)) {
+      fail('ops review-reports payload invalid')
+    }
   }
 }
 
