@@ -1223,8 +1223,6 @@ export default function BusinessDashboard() {
                       }
                     })
                   } else if (action === 'confirm') {
-                    const rel = reliability[bookings.find(b => b.id === bookingId)?.customer_user_id ?? ''] || { score: 80, stars: 0, noShowCount: 0, lateCancelCount: 0 }
-                    const eff = computeEffectiveReliability({ baseScore: rel.score, stars: rel.stars, noShowCount: rel.noShowCount, lateCancelCount: rel.lateCancelCount })
                     await runApprove(bookingId)
                   } else {
                     requestConfirm(action, bookingId)

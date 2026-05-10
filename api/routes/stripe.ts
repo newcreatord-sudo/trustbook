@@ -68,20 +68,6 @@ type BookingCancelRow = {
   businesses: { cancellation_window_min: number | null } | null
 }
 
-type BookingPaymentRow = {
-  id: string
-  booking_id: string
-  provider: 'stripe'
-  kind: 'deposit'
-  amount_cents: number
-  currency: string
-  stripe_session_id: string | null
-  stripe_payment_intent_id: string | null
-  status: string
-  created_at: string
-  updated_at: string
-}
-
 type SessionPaymentRow = {
   id: string
   booking_id: string
