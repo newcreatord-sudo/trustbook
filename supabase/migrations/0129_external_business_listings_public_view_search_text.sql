@@ -15,7 +15,6 @@ select
   country_code,
   lat,
   lng,
-  search_text,
   case
     when data_checked_at is not null
       and data_checked_at >= now() - interval '180 days'
@@ -48,7 +47,8 @@ select
   updated_at,
   claimed_business_id,
   claimed_at,
-  claimed_by_user_id
+  claimed_by_user_id,
+  search_text
 from public.external_business_listings
 where listing_status in ('unverified', 'claimed') and country_code = 'IT';
 
