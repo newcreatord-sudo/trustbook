@@ -11,6 +11,7 @@ import {
   type PaymentStatus,
 } from '../lib/paymentStatus.js'
 import { readEnvAny } from '../lib/env.js'
+import { coerceRpcJsonbArray, primaryRpcErrorMessage } from '../lib/supabaseRpcCoerce.js'
 import {
   mustSupabaseAdmin,
   adminTransitionBookingState as transitionBookingState,
@@ -670,7 +671,8 @@ router.get('/business/payments', async (req: Request, res: Response) => {
     })
 
     if (error) {
-      const msg = safeErrorMessage(error)
+      const primary = primaryRpcErrorMessage(error)
+      const msg = primary || safeErrorMessage(error)
       if (msg === 'not_authenticated') {
         res.status(401).json({ success: false, error: 'Unauthorized' })
         return
@@ -682,7 +684,7 @@ router.get('/business/payments', async (req: Request, res: Response) => {
       throw error
     }
 
-    const rows = Array.isArray(data) ? data : []
+    const rows = coerceRpcJsonbArray<Record<string, unknown>>(data)
     res.status(200).json({ success: true, rows })
   } catch (e: unknown) {
     res.status(502).json({ success: false, error: safeErrorMessage(e) })

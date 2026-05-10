@@ -1,19 +1,13 @@
 import { Router, type Request, type Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { readEnvAny } from '../lib/env.js'
+import { coerceRpcJsonbArray, primaryRpcErrorMessage } from '../lib/supabaseRpcCoerce.js'
 import { runCancelBookingByBusiness, runForfeitBookingDeposit } from '../lib/bookingDepositStripeAdmin.js'
 
 const router = Router()
 
 function routeError(res: Response, e: unknown): void {
-  const msg =
-    e instanceof Error
-      ? e.message
-      : typeof e === 'string'
-        ? e
-        : typeof (e as { message?: unknown } | null | undefined)?.message === 'string'
-          ? ((e as { message: string }).message ?? '')
-          : ''
+  const msg = primaryRpcErrorMessage(e)
   if (!msg) {
     res.status(502).json({ success: false, error: 'Service error' })
     return
@@ -524,7 +518,7 @@ router.get('/bookings/payments', async (req: Request, res: Response): Promise<vo
       p_agent_id: agentId,
     })
     if (error) throw error
-    const rows = Array.isArray(data) ? data : []
+    const rows = coerceRpcJsonbArray(data)
     res.status(200).json({ success: true, rows })
   } catch (e: unknown) {
     routeError(res, e)

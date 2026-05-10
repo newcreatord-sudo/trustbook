@@ -74,7 +74,7 @@ export default function BusinessPayments() {
     })
     const json = (await res.json()) as { success: boolean; rows?: ApiRow[]; error?: string }
     if (!res.ok || !json.success) throw new Error(json.error || 'Errore caricamento pagamenti')
-    setRows(json.rows ?? [])
+    setRows(Array.isArray(json.rows) ? json.rows : [])
   }
 
   useEffect(() => {

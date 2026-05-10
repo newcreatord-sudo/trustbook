@@ -408,6 +408,15 @@ async function assertHasNotifications(sb, userId) {
   return rows.length
 }
 
+async function listBusinessBookingPaymentsEnriched(sb, params) {
+  const { data, error } = await sb.rpc('list_business_booking_payments_enriched', {
+    p_business_id: params.businessId,
+    p_limit: params.limit ?? 50,
+  })
+  if (error) throw error
+  return Array.isArray(data) ? data : []
+}
+
 async function main() {
   await ensureSupabaseConfig()
 
@@ -473,6 +482,18 @@ async function main() {
     email: ownerEmail,
     name: `E2E Business ${tag}`,
   })
+
+  {
+    const rows = await listBusinessBookingPaymentsEnriched(sbOwner, { businessId: createdBiz.id, limit: 50 })
+    if (!Array.isArray(rows)) fail('Expected list_business_booking_payments_enriched to return an array')
+  }
+  try {
+    await listBusinessBookingPaymentsEnriched(sbCustomer, { businessId: createdBiz.id, limit: 50 })
+    fail('Expected list_business_booking_payments_enriched to be forbidden for non-members')
+  } catch (e) {
+    const msg = String((e && typeof e === 'object' && 'message' in e ? e.message : e) ?? '')
+    if (!msg.includes('member_only')) throw e
+  }
 
   const svc = await pickService(sbOwner, createdBiz.id)
   const timeZone = 'Europe/Rome'

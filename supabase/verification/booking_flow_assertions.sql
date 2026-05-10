@@ -91,4 +91,26 @@ begin
 end
 $$;
 
+do $$
+declare
+  fn_def text;
+begin
+  select pg_get_functiondef(p.oid)
+  into fn_def
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'create_booking_v3'
+    and pg_get_function_identity_arguments(p.oid) = 'p_business_id uuid, p_service_id uuid, p_start_at timestamp with time zone, p_end_at timestamp with time zone, p_staff_id uuid';
+
+  if fn_def is null then
+    raise exception 'booking_flow_assertion_failed: create_booking_v3 not found.';
+  end if;
+
+  if position('customer_subscription_no_deposit_bypass' in fn_def) = 0 then
+    raise exception 'booking_flow_assertion_failed: create_booking_v3 missing VIP no-deposit bypass.';
+  end if;
+end
+$$;
+
 select 'booking_flow_assertions_passed' as result;
