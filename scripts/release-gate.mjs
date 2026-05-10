@@ -54,6 +54,12 @@ const steps = [
 ]
 
 if (hasDbConnection) {
+  if (requireDbAssertions) {
+    steps.push({
+      label: 'DB applied migrations (required)',
+      cmd: 'node ./scripts/db-migrations-applied-check.mjs --require=0128_external_business_listings_search_text.sql,0129_external_business_listings_public_view_search_text.sql,0130_list_business_booking_payments_enriched_shared.sql,0131_external_business_listings_public_view_perf.sql',
+    })
+  }
   steps.push({ label: 'Owner-strict DB assertions', cmd: 'npm run db:verify-owner-strict' })
   steps.push({ label: 'Booking-flow DB assertions', cmd: 'npm run db:verify-booking-flow' })
   steps.push({ label: 'Booking-integrity DB assertions', cmd: 'npm run db:verify-booking-integrity' })
