@@ -121,4 +121,15 @@ describe('ai-tools routes (notes + floor tools)', () => {
       .expect(403)
     expect(res.body?.success).toBe(false)
   })
+
+  it('maps ai_booking_operator_disabled to 403 on bookings/payments', async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'ai_booking_operator_disabled' } })
+    const res = await request(app as never)
+      .get('/api/ai-tools/bookings/payments')
+      .query({ businessId: '11111111-1111-4111-8111-111111111111' })
+      .set('Authorization', 'Bearer test.jwt')
+      .expect(403)
+    expect(res.body?.success).toBe(false)
+    expect(res.body?.error).toBe('ai_booking_operator_disabled')
+  })
 })

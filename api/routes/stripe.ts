@@ -19,8 +19,25 @@ import {
   runCancelBookingByBusiness,
   runForfeitBookingDeposit,
   isPaymentsEnabled,
-  isBusinessMemberFromRequest,
 } from '../lib/bookingDepositStripeAdmin.js'
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function asUuidQuery(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (!s) return null
+  return UUID_RE.test(s) ? s : null
+}
+
+function parseBookingPaymentsLimit(q: unknown): number {
+  const fallback = 100
+  if (typeof q !== 'string' || !q.trim()) return fallback
+  const n = Number(q)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(1, Math.min(Math.trunc(n), 200))
+}
 
 const router = Router()
 
@@ -80,23 +97,6 @@ type WebhookEventInsert = {
   event_type: string
   livemode: boolean
   stripe_created_at: string | null
-}
-
-type PaymentBookingRow = {
-  id: string
-  start_at: string
-  end_at: string
-  service_id: string
-  customer_user_id: string
-}
-
-type PaymentServiceRow = { id: string; name: string }
-
-type PaymentProfileRow = {
-  id: string
-  first_name: string | null
-  last_name: string | null
-  phone: string | null
 }
 
 function getBaseUrl(req: Request): string {
@@ -653,100 +653,51 @@ router.post('/deposit/forfeit-by-business', async (req: Request, res: Response) 
 
 router.get('/business/payments', async (req: Request, res: Response) => {
   try {
-    const userId = await requireUserId(req)
-    if (!userId) {
+    const supabaseUrl = readEnvAny(['SUPABASE_URL', 'VITE_SUPABASE_URL'])
+    const anonKey = readEnvAny(['SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_ANON', 'anon_key'])
+    const token = getBearerToken(req)
+    if (!supabaseUrl || !anonKey || !token) {
       res.status(401).json({ success: false, error: 'Unauthorized' })
       return
     }
 
-    const businessId = String(req.query?.businessId ?? '').trim()
-    if (!businessId) {
-      res.status(400).json({ success: false, error: 'Missing businessId' })
-      return
-    }
-
-    const member = await isBusinessMemberFromRequest(req, businessId)
-    if (!member) {
-      res.status(403).json({ success: false, error: 'Forbidden' })
-      return
-    }
-
-    const sbAdmin = mustSupabaseAdmin()
-    const { data: bookingIdsRes, error: idErr } = await sbAdmin
-      .from('bookings')
-      .select('id')
-      .eq('business_id', businessId)
-      .order('created_at', { ascending: false })
-      .limit(200)
-    if (idErr) throw idErr
-    const bookingIds = ((bookingIdsRes as Array<{ id: string }>) ?? []).map((x) => x.id)
-    if (bookingIds.length === 0) {
-      res.status(200).json({ success: true, rows: [] as BookingPaymentRow[] })
-      return
-    }
-
-    const { data, error } = await sbAdmin
-      .from('booking_payments')
-      .select(
-        'id,booking_id,provider,kind,amount_cents,currency,stripe_session_id,stripe_payment_intent_id,status,created_at,updated_at',
-      )
-      .in('booking_id', bookingIds)
-      .order('created_at', { ascending: false })
-      .limit(100)
-    if (error) throw error
-
-    const paymentRows = ((data as BookingPaymentRow[]) ?? []) as BookingPaymentRow[]
-    const ids = paymentRows.map((r) => r.booking_id).filter(Boolean)
-    const uniqueIds = Array.from(new Set(ids))
-
-    const { data: bookingRowsRes, error: bkErr } = await sbAdmin
-      .from('bookings')
-      .select('id,start_at,end_at,service_id,customer_user_id')
-      .in('id', uniqueIds)
-    if (bkErr) throw bkErr
-    const bookingRows = ((bookingRowsRes as PaymentBookingRow[]) ?? []) as PaymentBookingRow[]
-    const bookingById = new Map<string, PaymentBookingRow>(bookingRows.map((b) => [b.id, b]))
-
-    const serviceIds = Array.from(new Set(bookingRows.map((b) => b.service_id).filter(Boolean)))
-    const customerIds = Array.from(new Set(bookingRows.map((b) => b.customer_user_id).filter(Boolean)))
-
-    const [svcRes, profRes] = await Promise.all([
-      serviceIds.length
-        ? sbAdmin.from('services').select('id,name').in('id', serviceIds)
-        : Promise.resolve({ data: [] as unknown, error: null } as { data: unknown; error: null }),
-      customerIds.length
-        ? sbAdmin.from('profiles').select('id,first_name,last_name,phone').in('id', customerIds)
-        : Promise.resolve({ data: [] as unknown, error: null } as { data: unknown; error: null }),
-    ])
-    if (svcRes.error) throw svcRes.error
-    if (profRes.error) throw profRes.error
-
-    const services = ((svcRes.data as PaymentServiceRow[]) ?? []) as PaymentServiceRow[]
-    const profiles = ((profRes.data as PaymentProfileRow[]) ?? []) as PaymentProfileRow[]
-    const serviceById = new Map<string, PaymentServiceRow>(services.map((s) => [s.id, s]))
-    const profileById = new Map<string, PaymentProfileRow>(profiles.map((p) => [p.id, p]))
-
-    const enriched = paymentRows.map((p) => {
-      const bk = bookingById.get(p.booking_id) ?? null
-      const svc = bk ? (serviceById.get(bk.service_id) ?? null) : null
-      const prof = bk ? (profileById.get(bk.customer_user_id) ?? null) : null
-      return {
-        ...p,
-        booking: bk
-          ? {
-              id: bk.id,
-              start_at: bk.start_at,
-              end_at: bk.end_at,
-              service_name: svc?.name ?? null,
-              customer: prof
-                ? { first_name: prof.first_name, last_name: prof.last_name, phone: prof.phone }
-                : null,
-            }
-          : null,
-      }
+    const sb = createClient(supabaseUrl, anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
     })
 
-    res.status(200).json({ success: true, rows: enriched })
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuidQuery(req.query?.businessId)
+    if (!businessId) {
+      res.status(400).json({ success: false, error: 'Missing or invalid businessId' })
+      return
+    }
+
+    const { data, error } = await sb.rpc('list_business_booking_payments_enriched', {
+      p_business_id: businessId,
+      p_limit: parseBookingPaymentsLimit(req.query?.limit),
+    })
+
+    if (error) {
+      const msg = safeErrorMessage(error)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'member_only') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      throw error
+    }
+
+    const rows = Array.isArray(data) ? data : []
+    res.status(200).json({ success: true, rows })
   } catch (e: unknown) {
     res.status(502).json({ success: false, error: safeErrorMessage(e) })
   }

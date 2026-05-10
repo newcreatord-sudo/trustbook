@@ -34,6 +34,7 @@ Questi endpoint usano `SUPABASE_SERVICE_ROLE_KEY` e quindi bypassano RLS. La sic
 - `POST /api/stripe/deposit/cancel-by-business`
 - `POST /api/stripe/deposit/forfeit-by-business`
 - `GET /api/stripe/business/payments`
+  - Dati: RPC Supabase `list_business_booking_payments_enriched` con JWT utente (`is_business_member` nel SQL). La lista non usa service role.
 - `POST /api/stripe/webhook`
   - Gate: signature webhook (Stripe) su raw body
   - Gate utente: session/JWT + ownership checks lato API per azioni business

@@ -148,6 +148,37 @@ function buildMockClient(params?: { authorizationHeader?: string }) {
       if (fnName === 'is_business_member') return { data: actor.isMember, error: null }
       if (fnName === 'is_business_owner') return { data: actor.isOwner, error: null }
 
+      if (fnName === 'list_business_booking_payments_enriched') {
+        if (!actor.isMember) {
+          return { data: null, error: { message: 'member_only' } }
+        }
+        return {
+          data: [
+            {
+              id: 'pay_list_1',
+              booking_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              provider: 'stripe',
+              kind: 'deposit',
+              amount_cents: 500,
+              currency: 'eur',
+              stripe_session_id: null,
+              stripe_payment_intent_id: null,
+              status: 'paid',
+              created_at: '2026-01-01T00:00:00.000Z',
+              updated_at: '2026-01-01T00:00:00.000Z',
+              booking: {
+                id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                start_at: '2026-01-02T10:00:00.000Z',
+                end_at: '2026-01-02T11:00:00.000Z',
+                service_name: 'Taglio',
+                customer: { first_name: 'A', last_name: 'B', phone: null },
+              },
+            },
+          ],
+          error: null,
+        }
+      }
+
       if (fnName === 'transition_booking_state') {
         state.transitions.push(params)
         const bookingId = String(params.p_booking_id ?? '')
@@ -330,10 +361,34 @@ describe('stripe routes critical flows', () => {
   it('business payments forbids users who are not team members', async () => {
     const res = await request(app as Parameters<typeof request>[0])
       .get('/api/stripe/business/payments')
-      .query({ businessId: 'biz_1' })
+      .query({ businessId: '11111111-1111-4111-8111-111111111111' })
       .set('Authorization', 'Bearer token_customer')
 
     expect(res.status).toBe(403)
+    expect(res.body.success).toBe(false)
+  })
+
+  it('business payments lists rows via member RPC (no service role read)', async () => {
+    const res = await request(app as Parameters<typeof request>[0])
+      .get('/api/stripe/business/payments')
+      .query({ businessId: '11111111-1111-4111-8111-111111111111', limit: '50' })
+      .set('Authorization', 'Bearer token_staff')
+
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(Array.isArray(res.body.rows)).toBe(true)
+    expect(res.body.rows).toHaveLength(1)
+    expect(res.body.rows[0].id).toBe('pay_list_1')
+    expect(res.body.rows[0].booking?.service_name).toBe('Taglio')
+  })
+
+  it('business payments rejects invalid businessId', async () => {
+    const res = await request(app as Parameters<typeof request>[0])
+      .get('/api/stripe/business/payments')
+      .query({ businessId: 'not-a-uuid' })
+      .set('Authorization', 'Bearer token_1')
+
+    expect(res.status).toBe(400)
     expect(res.body.success).toBe(false)
   })
 
