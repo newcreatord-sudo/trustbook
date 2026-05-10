@@ -327,7 +327,7 @@ describe('stripe routes critical flows', () => {
     expect(state.transitions.some((t) => t.p_booking_id === 'b2' && t.p_next_deposit_status === 'forfeited')).toBe(true)
   })
 
-  it('staff is forbidden on owner-only financial action', async () => {
+  it('staff can forfeit deposit when team member (aligned with dashboard)', async () => {
     state.bookings.set('b_staff', {
       id: 'b_staff',
       customer_user_id: 'user_x',
@@ -355,10 +355,10 @@ describe('stripe routes critical flows', () => {
       .set('Authorization', 'Bearer token_staff')
       .send({ bookingId: 'b_staff' })
 
-    expect(res.status).toBe(403)
-    expect(res.body.success).toBe(false)
-    expect(res.body.error).toBe('Forbidden')
-    expect(state.payments.get('pay_staff')?.status).toBe('paid')
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.depositStatus).toBe('forfeited')
+    expect(state.payments.get('pay_staff')?.status).toBe('forfeited')
   })
 
   it('customer is forbidden on owner-only business cancellation action', async () => {

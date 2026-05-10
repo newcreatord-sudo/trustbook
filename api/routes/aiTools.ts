@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { readEnvAny } from '../lib/env.js'
+import { runCancelBookingByBusiness, runForfeitBookingDeposit } from '../lib/bookingDepositStripeAdmin.js'
 
 const router = Router()
 
@@ -767,7 +768,64 @@ router.post('/bookings/mark-no-show', async (req: Request, res: Response): Promi
       p_agent_id: agentId,
     })
     if (error) throw error
+    try {
+      await runForfeitBookingDeposit(req, bookingId)
+    } catch (e: unknown) {
+      routeError(res, e)
+      return
+    }
     res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/cancel-by-business', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!bookingId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId' })
+      return
+    }
+
+    try {
+      const out = await runCancelBookingByBusiness(req, bookingId)
+      res.status(200).json({ success: true, ...out })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
+      if (msg === 'Unauthorized') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'Forbidden') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg === 'Booking not found') {
+        res.status(404).json({ success: false, error: msg })
+        return
+      }
+      if (msg === 'Refund requires payments to be enabled') {
+        res.status(503).json({ success: false, error: msg })
+        return
+      }
+      if (msg.includes('Missing payment reference')) {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      routeError(res, e)
+    }
   } catch (e: unknown) {
     routeError(res, e)
   }

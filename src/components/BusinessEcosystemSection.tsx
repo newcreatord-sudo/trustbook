@@ -478,9 +478,10 @@ export default function BusinessEcosystemSection(props: {
               <span className="text-sm font-medium text-white">AI operatore prenotazioni (agenda)</span>
               <span className="mt-0.5 block text-xs text-white/55">
                 Abilita i tool director su lista prenotazioni, dettaglio, approvazione/rifiuto richieste, riprogrammazione diretta o proposta al cliente,
-                accetta/rifiuta cambio orario, completa e no-show (solo owner). Annullamento con rimborso caparra resta su{' '}
-                <code className="text-[10px]">POST /api/stripe/deposit/cancel-by-business</code>. Con caparra pagata e no-show, dopo la RPC usa anche{' '}
-                <code className="text-[10px]">POST /api/stripe/deposit/forfeit-by-business</code> come in dashboard.
+                accetta/rifiuta cambio orario, completa e no-show (team attività con flag). Annullamento con rimborso caparra:{' '}
+                <code className="text-[10px]">POST /api/ai-tools/bookings/cancel-by-business</code> (stesso motore di{' '}
+                <code className="text-[10px]">/api/stripe/deposit/cancel-by-business</code>). No-show con caparra pagata: dopo la RPC si allinea anche il record pagamento; in alternativa{' '}
+                <code className="text-[10px]">forfeit-by-business</code> come in dashboard.
               </span>
             </span>
           </label>

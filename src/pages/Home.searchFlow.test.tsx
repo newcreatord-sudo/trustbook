@@ -90,7 +90,7 @@ describe('Home search flow', () => {
         const done = Promise.resolve({ data: [], error: null })
         const chain = {
           eq: () => chain,
-          or: () => chain,
+          ilike: () => chain,
           order: () => chain,
           range: async () => done,
         }

@@ -11,13 +11,17 @@ import {
   type PaymentStatus,
 } from '../lib/paymentStatus.js'
 import { readEnvAny } from '../lib/env.js'
+import {
+  mustSupabaseAdmin,
+  adminTransitionBookingState as transitionBookingState,
+  adminGetLatestPaymentByBooking as getLatestPaymentByBooking,
+  adminUpdateLatestPaymentByBooking as updateLatestPaymentByBooking,
+  runCancelBookingByBusiness,
+  runForfeitBookingDeposit,
+  isPaymentsEnabled,
+} from '../lib/bookingDepositStripeAdmin.js'
 
 const router = Router()
-
-function isPaymentsEnabled(): boolean {
-  const raw = readEnvAny(['PAYMENTS_ENABLED', 'VITE_PAYMENTS_ENABLED'])
-  return raw !== '0'
-}
 
 type BookingCheckoutRow = {
   id: string
@@ -148,21 +152,6 @@ function mustStripe(): Stripe {
   return new Stripe(key, { apiVersion: '2026-03-25.dahlia' })
 }
 
-function mustSupabaseAdmin() {
-  const supabaseUrl = readEnvAny(['SUPABASE_URL', 'VITE_SUPABASE_URL'])
-  const serviceRoleKey = readEnvAny([
-    'SUPABASE_SERVICE_ROLE_KEY',
-    'SERVICE_ROLE_KEY',
-    'SUPABASE_SERVICE_KEY',
-    'service_role',
-    'SERVICE_ROLE',
-  ])
-  if (!supabaseUrl || !serviceRoleKey) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-  })
-}
-
 function safeErrorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   if (typeof e === 'string') return e
@@ -261,84 +250,6 @@ async function markWebhookEventProcessed(params: {
   const { error } = await params.sbAdmin.from('stripe_webhook_events').insert(payload)
   if (!error || isPgUniqueViolation(error)) return
   throw error
-}
-
-async function updateLatestPaymentByBooking(params: {
-  sbAdmin: ReturnType<typeof mustSupabaseAdmin>
-  bookingId: string
-  nextStatus: PaymentStatus
-  requirePaymentIntent?: boolean
-}): Promise<{ paymentIntentId: string | null }> {
-  const { data, error } = await params.sbAdmin
-    .from('booking_payments')
-    .select('id,status,stripe_payment_intent_id')
-    .eq('booking_id', params.bookingId)
-    .eq('provider', 'stripe')
-    .eq('kind', 'deposit')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw error
-  if (!data) throw new Error('payment_not_found_for_booking')
-
-  const row = data as { id: string; status: unknown; stripe_payment_intent_id: string | null }
-  const current = asPaymentStatus(row.status)
-  if (!current) throw new Error('invalid_payment_status')
-  if (!canTransitionPaymentStatus(current, params.nextStatus)) throw new Error('invalid_payment_transition')
-
-  const piId = row.stripe_payment_intent_id ?? null
-  if (params.requirePaymentIntent && !piId) throw new Error('payment_intent_missing')
-
-  if (current !== params.nextStatus) {
-    const { error: updateErr } = await params.sbAdmin
-      .from('booking_payments')
-      .update({ status: params.nextStatus })
-      .eq('id', row.id)
-    if (updateErr) throw updateErr
-  }
-
-  return { paymentIntentId: piId }
-}
-
-async function getLatestPaymentByBooking(params: {
-  sbAdmin: ReturnType<typeof mustSupabaseAdmin>
-  bookingId: string
-}): Promise<{ status: PaymentStatus; paymentIntentId: string | null }> {
-  const { data, error } = await params.sbAdmin
-    .from('booking_payments')
-    .select('status,stripe_payment_intent_id')
-    .eq('booking_id', params.bookingId)
-    .eq('provider', 'stripe')
-    .eq('kind', 'deposit')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw error
-  if (!data) throw new Error('payment_not_found_for_booking')
-  const row = data as { status: unknown; stripe_payment_intent_id: string | null }
-  const status = asPaymentStatus(row.status)
-  if (!status) throw new Error('invalid_payment_status')
-  return { status, paymentIntentId: row.stripe_payment_intent_id ?? null }
-}
-
-async function transitionBookingState(params: {
-  sbAdmin: ReturnType<typeof mustSupabaseAdmin>
-  bookingId: string
-  nextStatus?: string
-  nextDepositStatus?: string
-  requireCurrentStatus?: string
-  touchConfirmedAt?: boolean
-  touchCancelledAt?: boolean
-}) {
-  const { error } = await params.sbAdmin.rpc('transition_booking_state', {
-    p_booking_id: params.bookingId,
-    p_next_status: params.nextStatus ?? null,
-    p_next_deposit_status: params.nextDepositStatus ?? null,
-    p_require_current_status: params.requireCurrentStatus ?? null,
-    p_touch_confirmed_at: params.touchConfirmedAt ?? false,
-    p_touch_cancelled_at: params.touchCancelledAt ?? false,
-  })
-  if (error) throw error
 }
 
 router.post('/deposit/checkout', async (req: Request, res: Response) => {
@@ -695,140 +606,63 @@ router.post('/deposit/cancel', async (req: Request, res: Response) => {
 
 router.post('/deposit/cancel-by-business', async (req: Request, res: Response) => {
   try {
-    const userId = await requireUserId(req)
-    if (!userId) {
-      res.status(401).json({ success: false, error: 'Unauthorized' })
-      return
-    }
-
     const bookingId = String(req.body?.bookingId ?? '').trim()
     if (!bookingId) {
       res.status(400).json({ success: false, error: 'Missing bookingId' })
       return
     }
-
-    const sbAdmin = mustSupabaseAdmin()
-    const { data: booking, error: bErr } = await sbAdmin
-      .from('bookings')
-      .select('id,customer_user_id,business_id,start_at,status,deposit_status,deposit_amount_cents')
-      .eq('id', bookingId)
-      .maybeSingle()
-    if (bErr) throw bErr
-    if (!booking) {
-      res.status(404).json({ success: false, error: 'Booking not found' })
+    const out = await runCancelBookingByBusiness(req, bookingId)
+    res.status(200).json({ success: true, ...out })
+  } catch (e: unknown) {
+    const msg = safeErrorMessage(e)
+    if (msg === 'Unauthorized') {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
       return
     }
-
-    const b = booking as unknown as {
-      id: string
-      customer_user_id: string
-      business_id: string
-      deposit_status: string
-      deposit_amount_cents: number
-    }
-
-    const owner = await isBusinessOwner({ req, businessId: b.business_id })
-    if (!owner) {
+    if (msg === 'Forbidden') {
       res.status(403).json({ success: false, error: 'Forbidden' })
       return
     }
-
-    let nextDepositStatus = b.deposit_status
-    if (b.deposit_status === 'paid' && b.deposit_amount_cents > 0) {
-      if (!isPaymentsEnabled()) {
-        res.status(503).json({ success: false, error: 'Refund requires payments to be enabled' })
-        return
-      }
-      const payment = await getLatestPaymentByBooking({ sbAdmin, bookingId })
-      if (payment.status !== 'paid' || !payment.paymentIntentId) {
-        res.status(409).json({ success: false, error: 'Missing payment reference for refund' })
-        return
-      }
-
-      const stripe = mustStripe()
-      await stripe.refunds.create({ payment_intent: payment.paymentIntentId, reason: 'requested_by_customer' })
-      await updateLatestPaymentByBooking({
-        sbAdmin,
-        bookingId,
-        nextStatus: 'refunded',
-        requirePaymentIntent: true,
-      })
-      nextDepositStatus = 'refunded'
+    if (msg === 'Booking not found') {
+      res.status(404).json({ success: false, error: 'Booking not found' })
+      return
     }
-
-    await transitionBookingState({
-      sbAdmin,
-      bookingId,
-      nextStatus: 'cancelled_by_business',
-      nextDepositStatus,
-      touchCancelledAt: true,
-    })
-
-    res.status(200).json({
-      success: true,
-      bookingId,
-      depositStatus: nextDepositStatus,
-      cancelledAt: new Date().toISOString(),
-    })
-  } catch (e: unknown) {
-    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+    if (msg === 'Refund requires payments to be enabled') {
+      res.status(503).json({ success: false, error: msg })
+      return
+    }
+    if (msg.includes('Missing payment reference')) {
+      res.status(409).json({ success: false, error: msg })
+      return
+    }
+    res.status(502).json({ success: false, error: msg })
   }
 })
 
 router.post('/deposit/forfeit-by-business', async (req: Request, res: Response) => {
   try {
-    const userId = await requireUserId(req)
-    if (!userId) {
-      res.status(401).json({ success: false, error: 'Unauthorized' })
-      return
-    }
-
     const bookingId = String(req.body?.bookingId ?? '').trim()
     if (!bookingId) {
       res.status(400).json({ success: false, error: 'Missing bookingId' })
       return
     }
-
-    const sbAdmin = mustSupabaseAdmin()
-    const { data: booking, error: bErr } = await sbAdmin
-      .from('bookings')
-      .select('id,business_id,deposit_status,deposit_amount_cents')
-      .eq('id', bookingId)
-      .maybeSingle()
-    if (bErr) throw bErr
-    if (!booking) {
-      res.status(404).json({ success: false, error: 'Booking not found' })
+    const out = await runForfeitBookingDeposit(req, bookingId)
+    res.status(200).json({ success: true, ...out })
+  } catch (e: unknown) {
+    const msg = safeErrorMessage(e)
+    if (msg === 'Unauthorized') {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
       return
     }
-
-    const b = booking as unknown as { business_id: string; deposit_status: string; deposit_amount_cents: number }
-    const owner = await isBusinessOwner({ req, businessId: b.business_id })
-    if (!owner) {
+    if (msg === 'Forbidden') {
       res.status(403).json({ success: false, error: 'Forbidden' })
       return
     }
-
-    let nextDepositStatus = b.deposit_status
-    if (b.deposit_status === 'paid' && b.deposit_amount_cents > 0) {
-      await updateLatestPaymentByBooking({
-        sbAdmin,
-        bookingId,
-        nextStatus: 'forfeited',
-      })
-      nextDepositStatus = 'forfeited'
+    if (msg === 'Booking not found') {
+      res.status(404).json({ success: false, error: 'Booking not found' })
+      return
     }
-
-    if (nextDepositStatus !== b.deposit_status) {
-      await transitionBookingState({
-        sbAdmin,
-        bookingId,
-        nextDepositStatus,
-      })
-    }
-
-    res.status(200).json({ success: true, bookingId, depositStatus: nextDepositStatus })
-  } catch (e: unknown) {
-    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+    res.status(502).json({ success: false, error: msg })
   }
 })
 

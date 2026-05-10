@@ -25,7 +25,6 @@ import type {
 } from '@/domain/supabase'
 import { formatDateTime, formatMoneyEUR } from '@/utils/time'
 import { errorMessage } from '@/lib/errors'
-import { computeDepositCents, depositStatusForAmount, statusAfterBusinessAccept } from '@/lib/bookingRules'
 import { bookingStatusLabel } from '@/utils/bookingUi'
 import OwnerOnlyPanel from '@/components/OwnerOnlyPanel'
 import { getRiskLevel } from '@/domain/antiNoShowEngine'
@@ -789,47 +788,26 @@ export default function BusinessDashboard() {
   const doReject = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    const now = new Date().toISOString()
     const reason = (rejectReason[b.id] ?? '').trim() || null
-    const { data, error } = await supabase
-      .from('bookings')
-      .update({
-        status: 'rejected',
-        rejected_by_user_id: userId ?? null,
-        rejection_reason: reason,
-        cancelled_at: now,
-      })
-      .eq('id', b.id)
-      .select('*')
-      .single()
+    const { data, error } = await supabase.rpc('business_reject_pending_booking', {
+      p_booking_id: b.id,
+      p_rejection_reason: reason,
+    })
     if (error) throw error
     setBookings((prev) => prev.map((x) => (x.id === b.id ? (data as BookingRow) : x)))
   }
 
-  const doApprove = async (bookingId: string, customerEffectiveScore: number) => {
+  const doApprove = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    if (!activeBusiness) return
-    const now = new Date().toISOString()
-    const svc = services.find((s) => s.id === b.service_id) ?? null
-    const deposit = computeDepositCents({ business: activeBusiness, customerScore: customerEffectiveScore, service: svc })
-    const nextStatus = statusAfterBusinessAccept({ depositCents: deposit })
-    const nextDepositStatus = depositStatusForAmount(deposit)
-    const { data, error } = await supabase
-      .from('bookings')
-      .update({
-        status: nextStatus,
-        deposit_amount_cents: deposit,
-        deposit_status: nextDepositStatus,
-        approved_by_user_id: userId ?? null,
-        confirmed_at: nextStatus === 'confirmed' ? now : null,
-      })
-      .eq('id', b.id)
-      .select('*')
-      .single()
+    const { data, error } = await supabase.rpc('business_approve_pending_booking', { p_booking_id: b.id })
     if (error) throw error
     setBookings((prev) => prev.map((x) => (x.id === b.id ? (data as BookingRow) : x)))
-    pushFlash('success', nextStatus === 'pending_deposit' ? 'Approvata: in attesa caparra.' : 'Approvata.')
+    const row = data as BookingRow
+    pushFlash(
+      'success',
+      row.status === 'requires_deposit' ? 'Approvata: in attesa deposito cliente.' : 'Approvata.',
+    )
   }
 
   useEffect(() => {
@@ -940,12 +918,12 @@ export default function BusinessDashboard() {
     })
   }
 
-  const runApprove = async (bookingId: string, customerEffectiveScore: number) => {
+  const runApprove = async (bookingId: string) => {
     setError(null)
     if (interactionsLocked) return
     await runBookingExclusive(async () => {
       try {
-        await doApprove(bookingId, customerEffectiveScore)
+        await doApprove(bookingId)
       } catch (e: unknown) {
         setError(errorMessage(e, 'Errore approvazione.'))
       }
@@ -1247,7 +1225,7 @@ export default function BusinessDashboard() {
                   } else if (action === 'confirm') {
                     const rel = reliability[bookings.find(b => b.id === bookingId)?.customer_user_id ?? ''] || { score: 80, stars: 0, noShowCount: 0, lateCancelCount: 0 }
                     const eff = computeEffectiveReliability({ baseScore: rel.score, stars: rel.stars, noShowCount: rel.noShowCount, lateCancelCount: rel.lateCancelCount })
-                    await runApprove(bookingId, eff.effectiveScore)
+                    await runApprove(bookingId)
                   } else {
                     requestConfirm(action, bookingId)
                   }
@@ -1612,7 +1590,7 @@ export default function BusinessDashboard() {
                                 canApprove={b.status === 'requested' || b.status === 'pending_approval'}
                                 canCancel={b.status === 'pending_approval' || b.status === 'pending_deposit' || b.status === 'confirmed'}
                                 canClose={b.status === 'confirmed'}
-                                onApprove={() => void runApprove(b.id, eff.effectiveScore)}
+                                onApprove={() => void runApprove(b.id)}
                                 onReject={() => {
                                   setError(null)
                                   requestConfirm('reject', b.id)
@@ -1696,7 +1674,7 @@ export default function BusinessDashboard() {
                                 canApprove={b.status === 'requested' || b.status === 'pending_approval'}
                                 canCancel={b.status === 'pending_approval' || b.status === 'pending_deposit' || b.status === 'confirmed'}
                                 canClose={b.status === 'confirmed'}
-                                onApprove={() => void runApprove(b.id, eff.effectiveScore)}
+                                onApprove={() => void runApprove(b.id)}
                                 onReject={() => {
                                   setError(null)
                                   requestConfirm('reject', b.id)
@@ -1757,7 +1735,7 @@ export default function BusinessDashboard() {
                                   canApprove={b.status === 'requested' || b.status === 'pending_approval'}
                                   canCancel={b.status === 'pending_approval' || b.status === 'pending_deposit' || b.status === 'confirmed'}
                                   canClose={b.status === 'confirmed'}
-                                  onApprove={() => void runApprove(b.id, eff.effectiveScore)}
+                                  onApprove={() => void runApprove(b.id)}
                                   onReject={() => {
                                     setError(null)
                                     requestConfirm('reject', b.id)
@@ -1817,7 +1795,7 @@ export default function BusinessDashboard() {
                                   canApprove={b.status === 'requested' || b.status === 'pending_approval'}
                                   canCancel={b.status === 'pending_approval' || b.status === 'pending_deposit' || b.status === 'requires_deposit' || b.status === 'pending_payment_setup' || b.status === 'confirmed'}
                                   canClose={b.status === 'confirmed'}
-                                  onApprove={() => void runApprove(b.id, eff.effectiveScore)}
+                                  onApprove={() => void runApprove(b.id)}
                                   onReject={() => {
                                     setError(null)
                                     requestConfirm('reject', b.id)
@@ -1889,7 +1867,7 @@ export default function BusinessDashboard() {
                                 canApprove={b.status === 'requested' || b.status === 'pending_approval'}
                                 canCancel={b.status === 'pending_approval' || b.status === 'pending_deposit' || b.status === 'requires_deposit' || b.status === 'pending_payment_setup' || b.status === 'confirmed'}
                                 canClose={false}
-                                onApprove={() => void runApprove(b.id, eff.effectiveScore)}
+                                onApprove={() => void runApprove(b.id)}
                                 onReject={() => {
                                   setError(null)
                                   requestConfirm('reject', b.id)
@@ -2044,7 +2022,7 @@ export default function BusinessDashboard() {
 
                       {(b.status === 'requested' || b.status === 'pending_approval') && (
                         <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-                          <Button type="button" disabled={interactionsLocked} onClick={() => void runApprove(b.id, eff.effectiveScore)}>
+                          <Button type="button" disabled={interactionsLocked} onClick={() => void runApprove(b.id)}>
                             Approva
                           </Button>
 
@@ -2259,7 +2237,7 @@ export default function BusinessDashboard() {
 
                             <div>
                               {b.status === 'requested' || b.status === 'pending_approval' ? (
-                                <Button type="button" size="sm" disabled={interactionsLocked} onClick={() => void runApprove(b.id, eff.effectiveScore)}>
+                                <Button type="button" size="sm" disabled={interactionsLocked} onClick={() => void runApprove(b.id)}>
                                   Approva
                                 </Button>
                               ) : b.status === 'confirmed' ? (
