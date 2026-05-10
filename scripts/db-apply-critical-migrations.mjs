@@ -117,6 +117,7 @@ const migrationPaths = [
   'supabase/migrations/0111_cursor_fix_agenda_privileges.sql',
   'supabase/migrations/0120_ai_booking_operator_tools.sql',
   'supabase/migrations/0121_ai_booking_operator_team_and_shared_approve.sql',
+  'supabase/migrations/0123_ai_list_business_booking_payments.sql',
 ].map((p) => resolve(process.cwd(), p))
 
 const fromArg = process.argv.find((x) => x.startsWith('--from=')) ?? null

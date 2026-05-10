@@ -37,13 +37,33 @@ export default function BusinessPayments() {
 
   const loadBusinesses = async () => {
     if (!userId) return
-    const ownedRes = await supabase.from('businesses').select('*').eq('owner_user_id', userId).order('created_at', { ascending: false })
+    const [ownedRes, memberRes] = await Promise.all([
+      supabase.from('businesses').select('*').eq('owner_user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('team_members').select('business_id').eq('user_id', userId),
+    ])
     if (ownedRes.error) throw ownedRes.error
+    if (memberRes.error) throw memberRes.error
     const owned = (ownedRes.data as BusinessRow[]) ?? []
-    setBusinesses(owned)
+    const memberBusinessIds = Array.from(
+      new Set(
+        ((memberRes.data as Array<{ business_id: string }>) ?? [])
+          .map((x) => x.business_id)
+          .filter(Boolean),
+      ),
+    )
+    let memberBusinesses: BusinessRow[] = []
+    if (memberBusinessIds.length) {
+      const { data: mb, error: mbErr } = await supabase.from('businesses').select('*').in('id', memberBusinessIds)
+      if (mbErr) throw mbErr
+      memberBusinesses = (mb as BusinessRow[]) ?? []
+    }
+    const mergedMap = new Map<string, BusinessRow>()
+    for (const b of [...owned, ...memberBusinesses]) mergedMap.set(b.id, b)
+    const list = Array.from(mergedMap.values()).sort((a, b) => b.created_at.localeCompare(a.created_at))
+    setBusinesses(list)
     setActiveBusinessId((prev) => {
-      if (prev && owned.some((b) => b.id === prev)) return prev
-      return owned[0]?.id ?? null
+      if (prev && list.some((b) => b.id === prev)) return prev
+      return list[0]?.id ?? null
     })
   }
 

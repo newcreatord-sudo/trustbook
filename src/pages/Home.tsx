@@ -279,7 +279,7 @@ export default function Home() {
           if (category) query = query.eq('category', category)
           if (qClean) {
             const like = `%${qClean}%`
-            query = query.or(`name.ilike.${like},city.ilike.${like},address_text.ilike.${like}`)
+            query = query.ilike('search_text', like)
           }
 
           const res = await query

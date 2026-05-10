@@ -497,6 +497,40 @@ router.get('/bookings/detail', async (req: Request, res: Response): Promise<void
   }
 })
 
+router.get('/bookings/payments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.query?.businessId)
+    if (!businessId) {
+      res.status(400).json({ success: false, error: 'Missing businessId' })
+      return
+    }
+    const limit = parseLimitQuery(req.query?.limit, 100)
+    const agentId = directorAgentIdFromQuery(req.query?.agentId)
+
+    const { data, error } = await sb.rpc('ai_list_business_booking_payments', {
+      p_business_id: businessId,
+      p_limit: limit,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    const rows = Array.isArray(data) ? data : []
+    res.status(200).json({ success: true, rows })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
 router.post('/bookings/approve', async (req: Request, res: Response): Promise<void> => {
   try {
     const sb = mustSupabaseUser(req)

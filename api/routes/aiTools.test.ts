@@ -96,6 +96,18 @@ describe('ai-tools routes (notes + floor tools)', () => {
     expect(rpcMock).toHaveBeenCalledWith('ai_list_business_bookings', expect.any(Object))
   })
 
+  it('calls RPC ai_list_business_booking_payments', async () => {
+    rpcMock.mockResolvedValueOnce({ data: [{ id: 'pay1', booking_id: 'b1' }], error: null })
+    const res = await request(app as never)
+      .get('/api/ai-tools/bookings/payments')
+      .query({ businessId: '11111111-1111-4111-8111-111111111111' })
+      .set('Authorization', 'Bearer test.jwt')
+      .expect(200)
+    expect(res.body?.success).toBe(true)
+    expect(Array.isArray(res.body?.rows)).toBe(true)
+    expect(rpcMock).toHaveBeenCalledWith('ai_list_business_booking_payments', expect.any(Object))
+  })
+
   it('maps ai_booking_operator_disabled to 403', async () => {
     rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'ai_booking_operator_disabled' } })
     const res = await request(app as never)

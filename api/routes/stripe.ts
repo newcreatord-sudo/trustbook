@@ -19,6 +19,7 @@ import {
   runCancelBookingByBusiness,
   runForfeitBookingDeposit,
   isPaymentsEnabled,
+  isBusinessMemberFromRequest,
 } from '../lib/bookingDepositStripeAdmin.js'
 
 const router = Router()
@@ -128,22 +129,6 @@ async function requireUserId(req: Request): Promise<string | null> {
   const { data, error } = await sb.auth.getUser()
   if (error || !data.user) return null
   return data.user.id
-}
-
-async function isBusinessOwner(params: { req: Request; businessId: string }): Promise<boolean> {
-  const supabaseUrl = readEnvAny(['SUPABASE_URL', 'VITE_SUPABASE_URL'])
-  const anonKey = readEnvAny(['SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_ANON', 'anon_key'])
-  const token = getBearerToken(params.req)
-  if (!supabaseUrl || !anonKey || !token) return false
-
-  const sb = createClient(supabaseUrl, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  })
-
-  const { data, error } = await sb.rpc('is_business_owner', { bid: params.businessId })
-  if (error) return false
-  return Boolean(data)
 }
 
 function mustStripe(): Stripe {
@@ -680,8 +665,8 @@ router.get('/business/payments', async (req: Request, res: Response) => {
       return
     }
 
-    const owner = await isBusinessOwner({ req, businessId })
-    if (!owner) {
+    const member = await isBusinessMemberFromRequest(req, businessId)
+    if (!member) {
       res.status(403).json({ success: false, error: 'Forbidden' })
       return
     }

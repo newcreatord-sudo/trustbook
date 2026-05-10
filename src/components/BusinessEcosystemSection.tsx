@@ -214,7 +214,8 @@ export default function BusinessEcosystemSection(props: {
         Batch whitelist e applicazioni manuali dashboard sono tracciate in{' '}
         <code className="text-xs">ai_agent_execution_log</code> (pannello suggerimenti AI); i tool HTTP director usano gli RPC{' '}
         <code className="text-xs">ai_*</code> con flag dedicati qui sotto. Operatore agenda (lista/approva/rifiuta/riprogramma/chiusure): RPC{' '}
-        <code className="text-xs">ai_list_business_bookings</code> ecc. e route{' '}
+        <code className="text-xs">ai_list_business_bookings</code> /{' '}
+        <code className="text-xs">ai_list_business_booking_payments</code> e route{' '}
         <code className="text-xs">/api/ai-tools/bookings/*</code> quando «AI operatore prenotazioni» è attivo.
       </Alert>
 

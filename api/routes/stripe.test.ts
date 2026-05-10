@@ -327,6 +327,16 @@ describe('stripe routes critical flows', () => {
     expect(state.transitions.some((t) => t.p_booking_id === 'b2' && t.p_next_deposit_status === 'forfeited')).toBe(true)
   })
 
+  it('business payments forbids users who are not team members', async () => {
+    const res = await request(app as Parameters<typeof request>[0])
+      .get('/api/stripe/business/payments')
+      .query({ businessId: 'biz_1' })
+      .set('Authorization', 'Bearer token_customer')
+
+    expect(res.status).toBe(403)
+    expect(res.body.success).toBe(false)
+  })
+
   it('staff can forfeit deposit when team member (aligned with dashboard)', async () => {
     state.bookings.set('b_staff', {
       id: 'b_staff',
