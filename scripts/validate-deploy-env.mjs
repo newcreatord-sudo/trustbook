@@ -6,6 +6,7 @@ import dotenv from 'dotenv'
 const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
 const envFile = envFileArg?.slice('--env-file='.length).trim() || '.env.staging'
 const envPath = resolve(process.cwd(), envFile)
+const envLocalPath = resolve(process.cwd(), `${envFile}.local`)
 const fileKind = envFile.toLowerCase().includes('production') ? 'production' : 'staging'
 const requirePayments = process.argv.includes('--require-payments')
 const requireStripeSaas = process.argv.includes('--require-stripe-saas')
@@ -15,8 +16,19 @@ if (!existsSync(envPath)) {
   process.exit(1)
 }
 
-const raw = readFileSync(envPath, 'utf8')
-const parsed = dotenv.parse(raw)
+function parseFileIfExists(p) {
+  if (!existsSync(p)) return null
+  const raw = readFileSync(p, 'utf8')
+  return { raw, parsed: dotenv.parse(raw) }
+}
+
+const base = parseFileIfExists(envPath)
+const local = parseFileIfExists(envLocalPath)
+
+const parsed = {
+  ...(base?.parsed ?? {}),
+  ...(local?.parsed ?? {}),
+}
 
 function readKey(name) {
   const v = parsed[name]
@@ -101,8 +113,6 @@ const requiredCore = [
   'SUPABASE_URL',
   'SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
-  'DATABASE_URL',
-  'SUPABASE_DB_URL',
   'APP_BASE_URL',
   'AUTH_ADMIN_SIGNUP_TOKEN',
   'REQUIRE_DB_ASSERTIONS',
@@ -171,21 +181,20 @@ if (requireDbAssertions && !['0', '1'].includes(requireDbAssertions)) {
   errors.push('REQUIRE_DB_ASSERTIONS must be 0 or 1')
 }
 
-if (dbUrl) {
-  const sslmode = pgUrlSslMode(dbUrl)
-  if (!sslmode) {
-    errors.push('DATABASE_URL must include ?sslmode=require (or verify-ca / verify-full)')
-  } else if (!isAcceptableSslMode(sslmode)) {
-    errors.push(`DATABASE_URL sslmode must be require/verify-ca/verify-full (got ${sslmode})`)
-  }
+const dbUrlOk = Boolean(dbUrl && !looksPlaceholder(dbUrl))
+const supabaseDbUrlOk = Boolean(supabaseDbUrl && !looksPlaceholder(supabaseDbUrl))
+if (!dbUrlOk && !supabaseDbUrlOk) {
+  errors.push('Missing DB connection: set DATABASE_URL or SUPABASE_DB_URL')
 }
 
-if (supabaseDbUrl) {
-  const sslmode = pgUrlSslMode(supabaseDbUrl)
-  if (!sslmode) {
-    errors.push('SUPABASE_DB_URL must include ?sslmode=require (or verify-ca / verify-full)')
-  } else if (!isAcceptableSslMode(sslmode)) {
-    errors.push(`SUPABASE_DB_URL sslmode must be require/verify-ca/verify-full (got ${sslmode})`)
+for (const [label, v] of [
+  ['DATABASE_URL', dbUrl],
+  ['SUPABASE_DB_URL', supabaseDbUrl],
+]) {
+  if (!v) continue
+  const sslmode = pgUrlSslMode(v)
+  if (sslmode && !isAcceptableSslMode(sslmode)) {
+    errors.push(`${label} sslmode must be require/verify-ca/verify-full (got ${sslmode})`)
   }
 }
 
@@ -217,10 +226,10 @@ if (dbUrl && supabaseDbUrl && dbUrl === supabaseDbUrl) {
 
 const supabaseRef = supabaseProjectRefFromUrl(supabaseUrl || viteSupabaseUrl || '')
 if (supabaseRef) {
-  if (dbUrl && !dbUrlLooksLikeSameSupabaseProject(dbUrl, supabaseRef)) {
+  if (dbUrlOk && dbUrl && !dbUrlLooksLikeSameSupabaseProject(dbUrl, supabaseRef)) {
     errors.push('DATABASE_URL does not appear to target the same Supabase project as SUPABASE_URL')
   }
-  if (supabaseDbUrl && !dbUrlLooksLikeSameSupabaseProject(supabaseDbUrl, supabaseRef)) {
+  if (supabaseDbUrlOk && supabaseDbUrl && !dbUrlLooksLikeSameSupabaseProject(supabaseDbUrl, supabaseRef)) {
     errors.push('SUPABASE_DB_URL does not appear to target the same Supabase project as SUPABASE_URL')
   }
 }

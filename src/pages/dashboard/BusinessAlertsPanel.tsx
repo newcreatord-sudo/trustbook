@@ -66,7 +66,7 @@ export default function BusinessAlertsPanel(props: {
   if (props.alertsLoading) {
     return (
       <div className="mt-6 space-y-3">
-        <div className="tb-kicker">DA FARE</div>
+        <div className="tb-kicker">PRIORITÀ</div>
         <div className="grid grid-cols-1 gap-3">
           {[0, 1, 2].map((i) => (
             <div key={i} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 animate-pulse">
@@ -121,7 +121,7 @@ export default function BusinessAlertsPanel(props: {
       key: 'pending',
       tone: 'danger',
       title: `${pendingCount} richieste in attesa`,
-      description: 'Approva/rifiuta velocemente per ridurre attrito e migliorare conversione.',
+      description: 'Conferma o rifiuta dalla lista appuntamenti: il cliente riceve subito una risposta.',
       ctaLabel: 'Vai alle richieste',
       onCta: props.onGoToPending,
       icon: 'pending',
@@ -133,7 +133,7 @@ export default function BusinessAlertsPanel(props: {
       key: 'deposit',
       tone: 'info',
       title: `${depositCount} caparre da gestire`,
-      description: 'Controlla prenotazioni in attesa caparra e stato pagamenti.',
+      description: 'Vedi chi deve ancora pagare la caparra e lo stato dei bonifici/card.',
       ctaLabel: 'Vedi caparre',
       onCta: props.onGoToDeposits,
       icon: 'deposit',
@@ -144,7 +144,7 @@ export default function BusinessAlertsPanel(props: {
         key: 'payments',
         tone: 'info',
         title: 'Pagamenti caparre',
-        description: 'Vista rapida: pagate, rimborsate e trattenute.',
+        description: 'Riepilogo caparre: pagate, rimborsate o trattenute secondo le regole dell’attività.',
         ctaLabel: 'Apri pagamenti',
         onCta: props.onGoToPayments,
         icon: 'deposit',
@@ -158,7 +158,7 @@ export default function BusinessAlertsPanel(props: {
       tone: 'warning',
       title: 'Servizi non configurati',
       description: isOwner
-        ? 'Almeno 1 servizio è necessario per prenotare. Scegli nome e durata chiari.'
+        ? 'Serve almeno un servizio con nome e durata: senza non compaiono slot prenotabili.'
         : 'Manca almeno un servizio configurato: solo l’owner può aggiungerli.',
       ...(isOwner ? { ctaLabel: 'Configura servizi', onCta: props.onGoToServices } : {}),
       icon: 'setup',
@@ -171,7 +171,7 @@ export default function BusinessAlertsPanel(props: {
       tone: 'warning',
       title: 'Orari mancanti',
       description: isOwner
-        ? 'Senza finestre settimanali non vengono generati slot prenotabili.'
+        ? 'Imposta le giornate e gli orari di apertura: da lì nascono gli slot che il cliente può scegliere.'
         : 'Mancano finestre settimanali: solo l’owner può impostare orari e ferie.',
       ...(isOwner ? { ctaLabel: 'Imposta orari', onCta: props.onGoToHours } : {}),
       icon: 'setup',
@@ -184,7 +184,7 @@ export default function BusinessAlertsPanel(props: {
       tone: 'info',
       title: 'Profilo incompleto',
       description: isOwner
-        ? 'Contatti, indirizzo e descrizione aumentano fiducia e riducono richieste inutili.'
+        ? 'Telefono, indirizzo e una breve descrizione aiutano il cliente a capire chi sei e dove sei.'
         : 'Profilo pubblico incompleto: solo l’owner può aggiornare contatti e scheda.',
       ...(isOwner ? { ctaLabel: 'Completa profilo', onCta: props.onGoToSettings } : {}),
       icon: 'info',
@@ -195,7 +195,7 @@ export default function BusinessAlertsPanel(props: {
 
   return (
     <div className="mt-6 space-y-3">
-      <div className="tb-kicker">DA FARE</div>
+      <div className="tb-kicker">PRIORITÀ</div>
       <div className="grid grid-cols-1 gap-3">
         {items.slice(0, 4).map((it) => {
           const Icon = iconFor(it.icon)

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { Client } from 'pg'
@@ -9,12 +9,26 @@ const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
 if (envFileArg) {
   const envFile = envFileArg.slice('--env-file='.length).trim()
   if (envFile) dotenv.config({ path: resolve(process.cwd(), envFile), override: true })
+  if (envFile) {
+    const local = `${envFile}.local`
+    if (existsSync(resolve(process.cwd(), local))) {
+      dotenv.config({ path: resolve(process.cwd(), local), override: true })
+    }
+  }
 }
 
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })
 dotenv.config({ path: resolve(process.cwd(), '.env') })
 
-const connectionString = process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL ?? null
+function readNonEmptyEnv(keys) {
+  for (const k of keys) {
+    const v = process.env[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return null
+}
+
+const connectionString = readNonEmptyEnv(['DATABASE_URL', 'SUPABASE_DB_URL'])
 
 if (!connectionString) {
   process.stderr.write('[booking-integrity-check] Missing DATABASE_URL (or SUPABASE_DB_URL).\n')

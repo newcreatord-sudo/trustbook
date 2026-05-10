@@ -16,6 +16,8 @@ import { useToast } from '@/shared/ui/toastContext'
 import ReviewReportModal from '@/components/ReviewReportModal'
 import {
   parseBusinessRow,
+  parseBusinessClosureRow,
+  parseBusinessOpeningWindowRow,
   parseBookingRow,
   parseReviewPublicRow,
   parseServiceRow,
@@ -24,6 +26,8 @@ import { REVIEW_WINDOW_MS } from '@/lib/reviewEligibility'
 import type {
   BookableStaffOptionRow,
   BusinessRow,
+  BusinessClosureRow,
+  BusinessOpeningWindowRow,
   ReviewPublicRow,
   ServiceRow,
 } from '@/domain/supabase'
@@ -38,6 +42,7 @@ import {
 import { fetchBusinessBookingEcosystem } from '@/lib/businessEcosystem'
 import type { BookingTableSelectionPolicy } from '@/pages/business/BookingPanel'
 import { parseBusinessPublicReputationRpcRow, type BusinessPublicReputation } from '@/lib/businessReputation'
+import { applyBusinessPublicSeo, clearBusinessPublicSeo } from '@/lib/seoBusinessPublicPage'
 
 function parseBookableStaffRpcRow(raw: unknown): BookableStaffOptionRow | null {
   if (!raw || typeof raw !== 'object') return null
@@ -117,13 +122,16 @@ export default function BusinessDetail() {
   const { session, profile } = useAuth()
   const { push } = useToast()
   const nav = useNavigate()
-  const { id } = useParams()
+  const { id, slug } = useParams() as { id?: string; slug?: string }
+  const [businessId, setBusinessId] = useState<string | null>(id ?? null)
 
   const [business, setBusiness] = useState<BusinessRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [services, setServices] = useState<ServiceRow[]>([])
   const [reviews, setReviews] = useState<ReviewPublicRow[]>([])
+  const [openingWindows, setOpeningWindows] = useState<BusinessOpeningWindowRow[]>([])
+  const [closures, setClosures] = useState<BusinessClosureRow[]>([])
   const [viewerCanReportCustomerReviews, setViewerCanReportCustomerReviews] = useState(false)
   const [reportReviewId, setReportReviewId] = useState<string | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
@@ -148,31 +156,110 @@ export default function BusinessDetail() {
   const bumpSlotRefresh = useCallback(() => setSlotRefreshEpoch((n) => n + 1), [])
 
   useEffect(() => {
-    if (!id) return
+    setBusinessId(id ?? null)
+  }, [id])
+
+  useEffect(() => {
+    if (id) return
+    if (!slug) return
+    let mounted = true
+    setLoading(true)
+    setLoadError(null)
+    ;(async () => {
+      try {
+        const { data, error } = await supabase.from('businesses').select('id').eq('slug', slug).maybeSingle()
+        if (error) throw error
+        const resolvedId = (data as { id?: string } | null)?.id ?? null
+        if (!mounted) return
+        if (!resolvedId) {
+          setBusinessId(null)
+          setBusiness(null)
+          setLoading(false)
+          setLoadError('Attività non trovata.')
+          return
+        }
+        setBusinessId(resolvedId)
+      } catch (e: unknown) {
+        if (!mounted) return
+        const code = String((e as { code?: unknown }).code ?? '')
+        const msg = String((e as { message?: unknown }).message ?? '')
+        setBusinessId(null)
+        setBusiness(null)
+        setLoading(false)
+        if (code === '42703' || msg.toLowerCase().includes('slug')) {
+          setLoadError('URL pubblico non disponibile. Aggiorna il database (migrazione slug).')
+        } else {
+          setLoadError(errorMessage(e, 'Attività non trovata.'))
+        }
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [id, slug])
+
+  useEffect(() => {
+    if (!businessId) return
     let mounted = true
     setLoading(true)
     setLoadError(null)
     const reviewsCutoffIso = new Date(Date.now() - REVIEW_WINDOW_MS).toISOString()
     Promise.all([
-      supabase.from('businesses').select('*').eq('id', id).single(),
-      supabase.from('services').select('*').eq('business_id', id).eq('is_active', true),
+      supabase.from('businesses').select('*').eq('id', businessId).single(),
+      supabase.from('services').select('*').eq('business_id', businessId).eq('is_active', true),
+      supabase
+        .from('business_opening_windows')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('weekday', { ascending: true })
+        .order('start_time', { ascending: true }),
+      supabase
+        .from('business_closures')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('start_at', { ascending: true })
+        .limit(200),
       supabase
         .from('reviews')
         .select('id,booking_id,business_id,direction,rating,comment,created_at')
-        .eq('business_id', id)
+        .eq('business_id', businessId)
         .eq('direction', 'customer_to_business')
         .gte('created_at', reviewsCutoffIso)
         .order('created_at', { ascending: false })
         .limit(80),
-      supabase.rpc('get_business_public_reputation', { p_business_id: id, p_window_days: 90 }),
+      supabase.rpc('get_business_public_reputation', { p_business_id: businessId, p_window_days: 90 }),
     ])
-      .then(([bRes, sRes, rRes, repRes]) => {
+      .then(([bRes, sRes, owRes, cRes, rRes, repRes]) => {
         if (!mounted) return
         if (bRes.error) throw bRes.error
         if (sRes.error) throw sRes.error
+        if (owRes.error) throw owRes.error
+        if (cRes.error) throw cRes.error
         if (rRes.error) throw rRes.error
         setBusiness(parseBusinessRow(bRes.data))
         setServices((((sRes.data as unknown[]) ?? []) as unknown[]).map(parseServiceRow))
+        setOpeningWindows(
+          (((owRes.data as unknown[]) ?? []) as unknown[])
+            .map((row) => {
+              try {
+                return parseBusinessOpeningWindowRow(row)
+              } catch {
+                return null
+              }
+            })
+            .filter((x): x is BusinessOpeningWindowRow => x !== null),
+        )
+        setClosures(
+          (((cRes.data as unknown[]) ?? []) as unknown[])
+            .map((row) => {
+              try {
+                return parseBusinessClosureRow(row)
+              } catch {
+                return null
+              }
+            })
+            .filter((x): x is BusinessClosureRow => x !== null),
+        )
         setReviews(
           (((rRes.data as unknown[]) ?? []) as unknown[])
             .map((row) => {
@@ -194,12 +281,33 @@ export default function BusinessDetail() {
         setLoading(false)
         setLoadError(errorMessage(e, 'Attività non trovata.'))
         setPublicReputation(null)
+        setOpeningWindows([])
+        setClosures([])
       })
 
     return () => {
       mounted = false
     }
-  }, [id])
+  }, [businessId])
+
+  useEffect(() => {
+    if (loadError) {
+      document.title = 'Attività non trovata | TrustBook'
+      clearBusinessPublicSeo()
+      return
+    }
+    if (loading) {
+      clearBusinessPublicSeo()
+      document.title = 'Caricamento… | TrustBook'
+      return
+    }
+    if (!business) {
+      clearBusinessPublicSeo()
+      document.title = 'TrustBook — Prenotazioni'
+      return
+    }
+    return applyBusinessPublicSeo(business)
+  }, [business, loading, loadError])
 
   useEffect(() => {
     if (!business?.id || !session?.user?.id) {
@@ -534,6 +642,9 @@ export default function BusinessDetail() {
           <BusinessInfo
             business={business}
             reviews={businessReviews}
+            services={services}
+            openingWindows={openingWindows}
+            closures={closures}
             reputation={publicReputation}
             reportCustomerReviewsEnabled={viewerCanReportCustomerReviews}
             onReportCustomerReview={(reviewId) => {

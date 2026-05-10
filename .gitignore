@@ -17,6 +17,10 @@ dist-ssr
 .env.local
 env/EDIT_STRIPE_STAGING.env
 env/EDIT_STRIPE_PRODUCTION.env
+.env*.bak
+.env*.bak.*
+*.bak
+*.bak.*
 
 # Editor directories and files
 .vscode/*
@@ -38,3 +42,9 @@ supabase/.temp/
 
 # Local artifacts (may contain cert chain / audit exports)
 artifacts/
+
+.vercel
+.env*.local
+
+.vercel
+.env*.local

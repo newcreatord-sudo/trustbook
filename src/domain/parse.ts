@@ -6,6 +6,8 @@ import type {
   BusinessClosureRow,
   BusinessOpeningWindowRow,
   BusinessRow,
+  ExternalBusinessListingRow,
+  ExternalBusinessListingStatus,
   CustomerReliabilityRow,
   DepositStatus,
   FavoriteBusinessRow,
@@ -124,6 +126,7 @@ export function parseBusinessRow(v: unknown): BusinessRow {
   const id = asString(v.id)
   const owner_user_id = asString(v.owner_user_id)
   const name = asString(v.name)
+  const slug = asString(v.slug)
   const category = asString(v.category)
   const lat = asNumber(v.lat)
   const lng = asNumber(v.lng)
@@ -138,6 +141,7 @@ export function parseBusinessRow(v: unknown): BusinessRow {
     id,
     owner_user_id,
     name,
+    slug,
     category,
     description: asString(v.description),
     address_text: asString(v.address_text),
@@ -149,6 +153,7 @@ export function parseBusinessRow(v: unknown): BusinessRow {
     website: asString(v.website),
     logo_url: asString(v.logo_url),
     gallery_urls,
+    public_profile_settings: isRecord(v.public_profile_settings) ? v.public_profile_settings : {},
     is_paused: asBoolean(v.is_paused) ?? false,
     listing_visible: asBoolean(v.listing_visible) ?? true,
     lat,
@@ -188,6 +193,58 @@ export function parseBusinessRow(v: unknown): BusinessRow {
 export function safeParseBusinessRow(v: unknown): BusinessRow | null {
   try {
     return parseBusinessRow(v)
+  } catch {
+    return null
+  }
+}
+
+export function parseExternalBusinessListingRow(v: unknown): ExternalBusinessListingRow {
+  if (!isRecord(v)) throw new Error('Invalid external listing')
+  const id = asString(v.id)
+  const slug = asString(v.slug)
+  const name = asString(v.name)
+  const category = asString(v.category)
+  const source = asString(v.source)
+  const status = asString(v.listing_status)
+  if (!id || !slug || !name || !category || !source || !status) throw new Error('Invalid external listing')
+  const allowed: ExternalBusinessListingStatus[] = ['unverified', 'claimed', 'archived', 'blocked']
+  if (!allowed.includes(status as ExternalBusinessListingStatus)) throw new Error('Invalid external listing status')
+
+  return {
+    id,
+    slug,
+    name,
+    category,
+    description: asString(v.description),
+    address_text: asString(v.address_text),
+    postal_code: asString(v.postal_code),
+    city: asString(v.city),
+    province: asString(v.province),
+    region: asString(v.region),
+    country_code: asString(v.country_code) ?? 'IT',
+    lat: asNumber(v.lat),
+    lng: asNumber(v.lng),
+    phone: asString(v.phone),
+    email: asString(v.email),
+    website: asString(v.website),
+    listing_status: status as ExternalBusinessListingStatus,
+    source,
+    source_ref: asString(v.source_ref),
+    source_url: asString(v.source_url),
+    source_license: asString(v.source_license),
+    source_attribution: asString(v.source_attribution),
+    data_checked_at: asString(v.data_checked_at),
+    imported_at: asString(v.imported_at) ?? new Date(0).toISOString(),
+    updated_at: asString(v.updated_at) ?? new Date(0).toISOString(),
+    claimed_business_id: asString(v.claimed_business_id),
+    claimed_at: asString(v.claimed_at),
+    claimed_by_user_id: asString(v.claimed_by_user_id),
+  }
+}
+
+export function safeParseExternalBusinessListingRow(v: unknown): ExternalBusinessListingRow | null {
+  try {
+    return parseExternalBusinessListingRow(v)
   } catch {
     return null
   }

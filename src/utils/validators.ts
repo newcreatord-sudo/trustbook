@@ -1,3 +1,5 @@
+import { sanitizePublicHttpUrl } from '@/lib/publicImageUrl'
+
 export function isEmailLike(input: string): boolean {
   const s = input.trim()
   if (!s) return false
@@ -5,14 +7,7 @@ export function isEmailLike(input: string): boolean {
 }
 
 export function isHttpUrl(input: string): boolean {
-  const s = input.trim()
-  if (!s) return false
-  try {
-    const u = new URL(s)
-    return u.protocol === 'http:' || u.protocol === 'https:'
-  } catch {
-    return false
-  }
+  return sanitizePublicHttpUrl(input) !== null
 }
 
 export function isPhoneLike(input: string): boolean {

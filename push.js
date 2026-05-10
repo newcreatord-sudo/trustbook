@@ -1,20 +1,28 @@
-import { Client } from 'pg';
-import fs from 'fs';
+import { Client } from 'pg'
+import fs from 'node:fs'
+import process from 'node:process'
+import { pgSslFromEnv } from './scripts/lib/pg-ssl.mjs'
 
-const connectionString = 'postgresql://postgres.ftxbtrydlfwmyexfersa:lsCQNqNAfwYDClPC@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require';
+const connectionString =
+  process.env.DATABASE_URL ||
+  process.env.SUPABASE_DB_URL ||
+  process.env.DB_CONNECTION_STRING ||
+  ''
 
 async function run() {
-  const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
-  await client.connect();
-  const sql1 = fs.readFileSync('supabase/migrations/0044_saas_platform_upgrades.sql', 'utf8');
-  const sql2 = fs.readFileSync('supabase/migrations/0045_auto_confirm_users.sql', 'utf8');
-  const sql5 = fs.readFileSync('supabase/migrations/0049_anti_no_show_engine_core.sql', 'utf8');
+  if (!connectionString.trim()) {
+    throw new Error('Missing DATABASE_URL (or SUPABASE_DB_URL / DB_CONNECTION_STRING)')
+  }
+
+  const client = new Client({ connectionString, ssl: pgSslFromEnv('push') })
+  await client.connect()
+  const sql5 = fs.readFileSync('supabase/migrations/0049_anti_no_show_engine_core.sql', 'utf8')
   
-  console.log('Running 0049...');
-  await client.query(sql5);
+  console.log('Running 0049...')
+  await client.query(sql5)
   
-  await client.end();
-  console.log('Done!');
+  await client.end()
+  console.log('Done!')
 }
 
 run().catch(console.error);

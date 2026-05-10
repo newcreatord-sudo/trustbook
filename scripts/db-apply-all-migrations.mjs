@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import process from 'node:process'
 import { Client } from 'pg'
@@ -6,9 +6,16 @@ import dotenv from 'dotenv'
 import { pgSslFromEnv } from './lib/pg-ssl.mjs'
 
 const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
+let envFile = null
 if (envFileArg) {
-  const envFile = envFileArg.slice('--env-file='.length).trim()
+  envFile = envFileArg.slice('--env-file='.length).trim() || null
   if (envFile) dotenv.config({ path: resolve(process.cwd(), envFile), override: true })
+  if (envFile) {
+    const local = `${envFile}.local`
+    if (existsSync(resolve(process.cwd(), local))) {
+      dotenv.config({ path: resolve(process.cwd(), local), override: true })
+    }
+  }
 }
 
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })
@@ -18,8 +25,9 @@ const connectionString =
   (typeof process.env.DATABASE_URL === 'string' && process.env.DATABASE_URL.trim() ? process.env.DATABASE_URL.trim() : null) ??
   (typeof process.env.SUPABASE_DB_URL === 'string' && process.env.SUPABASE_DB_URL.trim() ? process.env.SUPABASE_DB_URL.trim() : null)
 
-if (!connectionString) {
-  process.stderr.write('[db-apply-all] Missing DATABASE_URL/SUPABASE_DB_URL.\n')
+if (!connectionString || connectionString.includes('[YOUR-PASSWORD]')) {
+  const hint = envFile ? ` (set it in ${envFile} or ${envFile}.local)` : ''
+  process.stderr.write(`[db-apply-all] Missing DATABASE_URL/SUPABASE_DB_URL${hint}.\n`)
   process.exit(2)
 }
 
@@ -107,4 +115,3 @@ try {
 } finally {
   await client.end().catch(() => {})
 }
-

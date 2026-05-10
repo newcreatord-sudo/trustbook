@@ -105,6 +105,7 @@ export interface BusinessRow {
   id: string
   owner_user_id: string
   name: string
+  slug?: string | null
   category: string
   description: string | null
   address_text: string | null
@@ -116,6 +117,7 @@ export interface BusinessRow {
   website: string | null
   logo_url: string | null
   gallery_urls: string[]
+  public_profile_settings?: Record<string, unknown>
   is_paused: boolean
   listing_visible: boolean
   lat: number
@@ -150,6 +152,39 @@ export interface BusinessRow {
   refund_policy: RefundPolicy
   deposit_retained_on_no_show: boolean
   deposit_retained_on_late_cancel: boolean
+}
+
+export type ExternalBusinessListingStatus = 'unverified' | 'claimed' | 'archived' | 'blocked'
+
+export interface ExternalBusinessListingRow {
+  id: string
+  slug: string
+  name: string
+  category: string
+  description: string | null
+  address_text: string | null
+  postal_code: string | null
+  city: string | null
+  province: string | null
+  region: string | null
+  country_code: string
+  lat: number | null
+  lng: number | null
+  phone: string | null
+  email: string | null
+  website: string | null
+  listing_status: ExternalBusinessListingStatus
+  source: string
+  source_ref: string | null
+  source_url: string | null
+  source_license: string | null
+  source_attribution: string | null
+  data_checked_at: string | null
+  imported_at: string
+  updated_at: string
+  claimed_business_id: string | null
+  claimed_at: string | null
+  claimed_by_user_id: string | null
 }
 
 

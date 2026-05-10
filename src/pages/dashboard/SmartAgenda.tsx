@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, User, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
-import type { BookingRow, ServiceRow } from '@/domain/supabase'
+import type { BookingRow, ServiceRow, BookingStatus } from '@/domain/supabase'
 import { getWeekRange, startOfDay } from '@/utils/calendar'
+import { bookingStatusLabel } from '@/utils/bookingUi'
 
 type StaffMember = {
   id: string
@@ -225,29 +226,81 @@ export default function SmartAgenda(props: {
   return (
     <div className="flex flex-col space-y-4">
       {/* Header controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-[#1C1C1E] p-4 rounded-xl border border-white/10">
-        <div className="flex items-center gap-2">
-          <button onClick={handlePrev} className="p-2 hover:bg-white/10 rounded-lg transition"><ChevronLeft className="w-5 h-5 text-white" /></button>
-          <span className="text-white font-medium min-w-[150px] text-center capitalize">{formatHeader()}</span>
-          <button onClick={handleNext} className="p-2 hover:bg-white/10 rounded-lg transition"><ChevronRight className="w-5 h-5 text-white" /></button>
-          <button onClick={() => setAnchor(startOfDay(new Date()))} className="ml-2 px-3 py-1.5 text-xs font-medium text-white/70 bg-white/5 hover:bg-white/10 rounded-lg transition border border-white/10">Oggi</button>
+      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            aria-label="Periodo precedente"
+            onClick={handlePrev}
+            className="rounded-xl border border-white/10 bg-white/5 p-2 text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <span className="min-w-[min(100%,12rem)] text-center text-sm font-medium capitalize text-white">{formatHeader()}</span>
+          <button
+            type="button"
+            aria-label="Periodo successivo"
+            onClick={handleNext}
+            className="rounded-xl border border-white/10 bg-white/5 p-2 text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Vai a oggi"
+            onClick={() => setAnchor(startOfDay(new Date()))}
+            className="ml-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50 sm:ml-2"
+          >
+            Oggi
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 p-1 bg-white/5 rounded-lg border border-white/10">
-          <button onClick={() => setMode('day')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition", mode === 'day' ? "bg-[#4F7CFF] text-white" : "text-white/60 hover:text-white")}>Giorno</button>
-          <button onClick={() => setMode('week')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition", mode === 'week' ? "bg-[#4F7CFF] text-white" : "text-white/60 hover:text-white")}>Settimana</button>
-          <button onClick={() => setMode('month')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition", mode === 'month' ? "bg-[#4F7CFF] text-white" : "text-white/60 hover:text-white")}>Mese</button>
+        <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.04] p-1" role="group" aria-label="Scala tempo calendario">
+          <button
+            type="button"
+            onClick={() => setMode('day')}
+            className={cn(
+              'rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50',
+              mode === 'day' ? 'bg-[#4F7CFF] text-white' : 'text-white/60 hover:text-white',
+            )}
+          >
+            Giorno
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('week')}
+            className={cn(
+              'rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50',
+              mode === 'week' ? 'bg-[#4F7CFF] text-white' : 'text-white/60 hover:text-white',
+            )}
+          >
+            Settimana
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('month')}
+            className={cn(
+              'rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50',
+              mode === 'month' ? 'bg-[#4F7CFF] text-white' : 'text-white/60 hover:text-white',
+            )}
+          >
+            Mese
+          </button>
         </div>
       </div>
+      <p className="text-[11px] leading-relaxed text-white/50">
+        Stati in italiano. Per modifiche complesse agli appuntamenti usa la scheda «Tutte» con i dettagli.
+      </p>
 
       {/* Agenda Grid / List */}
-      <div className="bg-[#1C1C1E] border border-white/10 rounded-xl overflow-hidden min-h-[500px]">
+      <div className="min-h-[500px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
         {loading ? (
-          <div className="flex items-center justify-center h-64 text-white/50">Caricamento agenda...</div>
+          <div className="flex h-64 items-center justify-center text-sm text-white/50">Carico l&apos;agenda…</div>
         ) : rangeBookings.length === 0 && blocked.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-white/50">
-            <CalendarIcon className="w-10 h-10 mb-3 opacity-50" />
-            <p>Nessun appuntamento o blocco in questo periodo</p>
+          <div className="flex h-64 flex-col items-center justify-center px-4 text-center text-white/55">
+            <CalendarIcon className="mb-3 h-10 w-10 opacity-45" aria-hidden />
+            <p className="text-sm font-medium text-white/75">Nessun appuntamento in questo periodo</p>
+            <p className="mt-1 max-w-sm text-xs text-white/45">Prova altre date o torna alla lista «Tutte» per cercare per nome.</p>
           </div>
         ) : (
           <div className="divide-y divide-white/5">
@@ -262,15 +315,18 @@ export default function SmartAgenda(props: {
                       <span className="text-white font-medium text-sm">
                         {new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit' }).format(new Date(b.start_at))} - {new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit' }).format(new Date(b.end_at))}
                       </span>
-                      <span className={cn(
-                        "text-[10px] px-2 py-0.5 rounded-full font-semibold border",
-                        b.status === 'confirmed' ? "bg-green-500/10 text-green-400 border-green-500/20" :
-                        b.status === 'completed' ? "bg-white/10 text-white border-white/20" :
-                        b.status === 'no_show' ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                        b.status === 'pending_approval' ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" :
-                        "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                      )}>
-                        {b.status}
+                      <span
+                        className={cn(
+                          'max-w-[11rem] truncate text-[10px] font-semibold px-2 py-0.5 rounded-full border',
+                          b.status === 'confirmed' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                          b.status === 'completed' ? 'bg-white/10 text-white border-white/20' :
+                          b.status === 'no_show' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                          b.status === 'pending_approval' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' :
+                          'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                        )}
+                        title={bookingStatusLabel(b.status as BookingStatus)}
+                      >
+                        {bookingStatusLabel(b.status as BookingStatus)}
                       </span>
                       {b.checked_in_at && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">

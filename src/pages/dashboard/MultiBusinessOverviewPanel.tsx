@@ -3,6 +3,7 @@ import type { BusinessRow } from '@/domain/supabase'
 import Card from '@/shared/ui/Card'
 import Alert from '@/shared/ui/Alert'
 import Button from '@/shared/ui/Button'
+import MediaThumb from '@/shared/ui/MediaThumb'
 import { formatMoneyEUR } from '@/utils/time'
 import { supabase } from '@/lib/supabase'
 import { errorMessage } from '@/lib/errors'
@@ -148,11 +149,18 @@ export default function MultiBusinessOverviewPanel(props: {
           return (
             <div key={b.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <div className="flex items-start gap-3">
-                <div className="min-w-0">
+                <MediaThumb
+                  src={b.logo_url}
+                  alt={`Logo ${b.name}`}
+                  fallbackLabel={b.name}
+                  roundedClassName="!rounded-xl"
+                  containerClassName="h-11 w-11 shrink-0 text-xs"
+                />
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-white">{b.name}</div>
                   <div className="truncate text-xs text-white/50">{b.category} · {b.city ?? '—'}</div>
                 </div>
-                <div className="ml-auto">
+                <div className="shrink-0">
                   <Button size="sm" variant="primary" onClick={() => props.onOpenBusiness(b.id)}>
                     Apri
                   </Button>

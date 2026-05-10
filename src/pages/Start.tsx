@@ -25,10 +25,10 @@ export default function Start() {
   const nextQ = next ? `&next=${encodeNext(next)}` : ''
 
   return (
-    <div className="tb-page grid grid-cols-1 gap-6 py-6 md:grid-cols-2 md:py-16">
-      <div className="tb-card tb-card-pad">
+    <div className="tb-page grid grid-cols-1 gap-6 py-6 md:grid-cols-2 md:gap-8 md:py-16">
+      <div className="tb-immersive-panel p-6 md:p-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#4F7CFF]">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7398FF] via-[#4F7CFF] to-[#3559d8] shadow-lg shadow-[#4F7CFF]/35 ring-2 ring-white/15">
             <ShieldCheck className="h-5 w-5 text-white" />
           </div>
           <div>
@@ -42,7 +42,7 @@ export default function Start() {
         </div>
       </div>
 
-      <div className="tb-card tb-card-pad">
+      <div className="tb-card tb-card-blur tb-card-pad border-white/12 shadow-tbElevated">
         <div className="tb-kicker">CHI SEI?</div>
 
         <div className="mt-3 grid grid-cols-1 gap-2">

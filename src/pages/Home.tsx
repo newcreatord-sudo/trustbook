@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AppShell from '@/components/AppShell'
 const MapView = lazy(() => import('@/components/MapView'))
-import type { BusinessRow } from '@/domain/supabase'
+import type { BusinessRow, ExternalBusinessListingRow } from '@/domain/supabase'
 import { haversineKm } from '@/utils/geo'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/providers/authContext'
@@ -13,8 +13,9 @@ import Button from '@/shared/ui/Button'
 import Card from '@/shared/ui/Card'
 import EmptyState from '@/shared/ui/EmptyState'
 import Skeleton from '@/shared/ui/Skeleton'
-import { safeParseBusinessRow } from '@/domain/parse'
+import { safeParseBusinessRow, safeParseExternalBusinessListingRow } from '@/domain/parse'
 import BusinessResultCard from '@/pages/home/BusinessResultCard'
+import ExternalListingResultCard from '@/pages/home/ExternalListingResultCard'
 import HomeFilters from '@/pages/home/HomeFilters'
 import HomeHero from '@/pages/home/HomeHero'
 import HomeResultsSkeleton from '@/pages/home/HomeResultsSkeleton'
@@ -27,12 +28,17 @@ import { relevanceScore } from '@/pages/home/searchSort'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { getOrSetCachedAsync } from '@/lib/queryCache'
 import { REVIEW_WINDOW_MS } from '@/lib/reviewEligibility'
+import { businessPublicPath } from '@/lib/businessPublicPath'
 
 export default function Home() {
   const { session, profile, refreshProfile } = useAuth()
   const { push } = useToast()
   const userId = session?.user?.id ?? null
   const [businesses, setBusinesses] = useState<BusinessRow[]>([])
+  const [externalListings, setExternalListings] = useState<ExternalBusinessListingRow[]>([])
+  const [externalPage, setExternalPage] = useState(0)
+  const [externalHasMore, setExternalHasMore] = useState(false)
+  const [externalBusy, setExternalBusy] = useState(false)
   const [reviews, setReviews] = useState<ReviewLite[]>([])
   const [services, setServices] = useState<Array<{ business_id: string; name: string; price_cents: number | null }>>([])
   const [openingWindows, setOpeningWindows] = useState<Array<{ business_id: string; weekday: number }>>([])
@@ -60,6 +66,13 @@ export default function Home() {
     document.title = 'Esplora attività | TrustBook'
   }, [])
 
+  const externalFilterKey = useMemo(() => {
+    if (availabilityFilter || priceFilter) return 'disabled'
+    const q = debouncedQuery.trim()
+    const qClean = q.split(',').join(' ').slice(0, 60)
+    return `q=${qClean.toLowerCase()}:cat=${category || '-'}`
+  }, [availabilityFilter, priceFilter, debouncedQuery, category])
+
   useEffect(() => {
     let mounted = true
     setLoading(true)
@@ -67,13 +80,13 @@ export default function Home() {
       try {
         const [parsedBusinesses, parsedReviews, fetchedServices, fetchedWindows] = await Promise.all([
           getOrSetCachedAsync({
-            key: 'esplora_businesses_v3_visible_only',
+            key: 'esplora_businesses_v4_public_profile',
             ttlMs: 60_000,
             fn: async () => {
               const bRes = await supabase
                 .from('businesses')
                 .select(
-                  'id,owner_user_id,name,category,description,address_text,city,postal_code,logo_url,is_paused,listing_visible,lat,lng,deposit_enabled,deposit_rule,deposit_fixed_cents,deposit_percent,deposit_min_cents,deposit_max_cents,created_at,updated_at,approval_mode',
+                  'id,owner_user_id,name,slug,category,description,address_text,city,postal_code,logo_url,gallery_urls,public_profile_settings,is_paused,listing_visible,lat,lng,deposit_enabled,deposit_rule,deposit_fixed_cents,deposit_percent,deposit_min_cents,deposit_max_cents,created_at,updated_at,approval_mode',
                 )
                 .eq('is_paused', false)
                 .eq('listing_visible', true)
@@ -145,6 +158,155 @@ export default function Home() {
       mounted = false
     }
   }, [])
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        if (externalFilterKey === 'disabled') {
+          if (mounted) {
+            setExternalListings([])
+            setExternalPage(0)
+            setExternalHasMore(false)
+            setExternalBusy(false)
+          }
+          return
+        }
+
+        const q = debouncedQuery.trim()
+        const qClean = q.split(',').join(' ').slice(0, 60)
+        const pageSize = 260
+        const from = 0
+        const to = from + pageSize
+        const cacheKey = `esplora_external_business_listings_v3:${externalFilterKey}:p=0`
+
+        if (mounted) {
+          setExternalListings([])
+          setExternalPage(0)
+          setExternalHasMore(false)
+          setExternalBusy(true)
+        }
+
+        const parsedExternalListings = await getOrSetCachedAsync({
+          key: cacheKey,
+          ttlMs: 45_000,
+          fn: async () => {
+            try {
+              let query = supabase
+                .from('external_business_listings_public')
+                .select(
+                  'id,slug,name,category,description,address_text,city,postal_code,province,region,country_code,lat,lng,phone,email,website,listing_status,source,data_checked_at,imported_at,claimed_business_id',
+                )
+                .order('imported_at', { ascending: false })
+                .range(from, to)
+
+              if (category) query = query.eq('category', category)
+              if (qClean) {
+                const like = `%${qClean}%`
+                query = query.or(`name.ilike.${like},city.ilike.${like},address_text.ilike.${like}`)
+              }
+
+              const res = await query
+              if (res.error) throw res.error
+              const parsed = (((res.data as unknown[]) ?? []) as unknown[])
+                .map((x) => safeParseExternalBusinessListingRow(x))
+                .filter(Boolean) as ExternalBusinessListingRow[]
+              const hasMore = parsed.length > pageSize
+              const rows = hasMore ? parsed.slice(0, pageSize) : parsed
+              return { rows, hasMore }
+            } catch (e) {
+              const msg = errorMessage(e).toLowerCase()
+              if (
+                msg.includes('external_business_listings') ||
+                msg.includes('does not exist') ||
+                msg.includes('relation') ||
+                msg.includes('cannot read') ||
+                msg.includes('is not a function')
+              ) {
+                return { rows: [] as ExternalBusinessListingRow[], hasMore: false }
+              }
+              throw e
+            }
+          },
+        })
+
+        if (!mounted) return
+        setExternalListings(parsedExternalListings.rows)
+        setExternalHasMore(parsedExternalListings.hasMore)
+        setExternalPage(1)
+      } catch {
+        if (!mounted) return
+        setExternalListings([])
+        setExternalHasMore(false)
+        setExternalPage(0)
+      } finally {
+        if (mounted) setExternalBusy(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [externalFilterKey, availabilityFilter, priceFilter, debouncedQuery, category])
+
+  const loadMoreExternal = async () => {
+    if (externalBusy) return
+    if (!externalHasMore) return
+    if (availabilityFilter || priceFilter) return
+
+    const q = debouncedQuery.trim()
+    const qClean = q.split(',').join(' ').slice(0, 60)
+    const pageSize = 260
+    const page = externalPage
+    const from = page * pageSize
+    const to = from + pageSize
+    const cacheKey = `esplora_external_business_listings_v3:${externalFilterKey}:p=${page}`
+
+    setExternalBusy(true)
+    try {
+      const next = await getOrSetCachedAsync({
+        key: cacheKey,
+        ttlMs: 45_000,
+        fn: async () => {
+          let query = supabase
+            .from('external_business_listings_public')
+            .select(
+              'id,slug,name,category,description,address_text,city,postal_code,province,region,country_code,lat,lng,phone,email,website,listing_status,source,data_checked_at,imported_at,claimed_business_id',
+            )
+            .order('imported_at', { ascending: false })
+            .range(from, to)
+
+          if (category) query = query.eq('category', category)
+          if (qClean) {
+            const like = `%${qClean}%`
+            query = query.or(`name.ilike.${like},city.ilike.${like},address_text.ilike.${like}`)
+          }
+
+          const res = await query
+          if (res.error) throw res.error
+          const parsed = (((res.data as unknown[]) ?? []) as unknown[])
+            .map((x) => safeParseExternalBusinessListingRow(x))
+            .filter(Boolean) as ExternalBusinessListingRow[]
+          const hasMore = parsed.length > pageSize
+          const rows = hasMore ? parsed.slice(0, pageSize) : parsed
+          return { rows, hasMore }
+        },
+      })
+
+      setExternalListings((prev) => {
+        const byId = new Map<string, ExternalBusinessListingRow>()
+        for (const x of prev) byId.set(x.id, x)
+        for (const x of next.rows) byId.set(x.id, x)
+        return Array.from(byId.values())
+      })
+      setExternalHasMore(next.hasMore)
+      setExternalPage((p) => p + 1)
+    } catch {
+      setExternalHasMore(false)
+    } finally {
+      setExternalBusy(false)
+    }
+  }
 
   useEffect(() => {
     try {
@@ -312,6 +474,28 @@ export default function Home() {
 
   const effectiveSort: BusinessSortKey = sort === 'distance' && !userLoc ? 'newest' : sort
 
+  type ExploreBusinessItem = {
+    kind: 'business'
+    id: string
+    business: BusinessRow
+    createdAt: string
+    distanceKm: number | null
+    ratingAvg: number | null
+    ratingCount: number
+    avgPrice: number | null
+    hasToday: boolean
+  }
+
+  type ExploreExternalItem = {
+    kind: 'external'
+    id: string
+    listing: ExternalBusinessListingRow
+    createdAt: string
+    distanceKm: number | null
+  }
+
+  type ExploreItem = ExploreBusinessItem | ExploreExternalItem
+
   const filteredAll = useMemo(() => {
     const q = debouncedQuery
     const qLower = q.trim().toLowerCase()
@@ -322,7 +506,7 @@ export default function Home() {
     tomorrow.setDate(today.getDate() + 1)
     const tomorrowDay = openingWindowWeekdayJs(tomorrow)
 
-    const base = businesses
+    const businessItems: ExploreBusinessItem[] = businesses
       .filter((b) => {
         if (!Number.isFinite(b.lat) || !Number.isFinite(b.lng)) return false
         if (category && b.category !== category) return false
@@ -364,7 +548,10 @@ export default function Home() {
           bServices.length > 0 ? bServices.reduce((acc, s) => acc + (s.price_cents || 0), 0) / bServices.length : null
 
         return {
+          kind: 'business',
+          id: `b:${b.id}`,
           business: b,
+          createdAt: b.created_at,
           distanceKm,
           ratingAvg: stats?.avg ?? null,
           ratingCount: stats?.count ?? 0,
@@ -373,32 +560,62 @@ export default function Home() {
         }
       })
 
-    return base.sort((a, b) => {
+    const externalItems: ExploreExternalItem[] = externalListings
+      .filter((l) => {
+        if (availabilityFilter || priceFilter) return false
+        if (l.listing_status === 'blocked') return false
+        if (l.lat === null || l.lng === null) return false
+        if (!Number.isFinite(l.lat) || !Number.isFinite(l.lng)) return false
+        if (category && l.category !== category) return false
+        if (qLower && !matchBusiness(l, q)) return false
+        if (userLoc && maxDistanceKm !== null) {
+          const d = haversineKm(userLoc, { lat: l.lat, lng: l.lng })
+          if (d > maxDistanceKm) return false
+        }
+        return true
+      })
+      .map((l) => {
+        const distanceKm = userLoc ? haversineKm(userLoc, { lat: l.lat as number, lng: l.lng as number }) : null
+        return {
+          kind: 'external',
+          id: `l:${l.id}`,
+          listing: l,
+          createdAt: l.imported_at,
+          distanceKm,
+        }
+      })
+
+    const items: ExploreItem[] = [...businessItems, ...externalItems]
+
+    return items.sort((a, b) => {
       if (effectiveSort === 'distance') {
         if (a.distanceKm === null || b.distanceKm === null) return 0
         return a.distanceKm - b.distanceKm
       }
       if (effectiveSort === 'rating') {
-        const av = a.ratingAvg ?? -1
-        const bv = b.ratingAvg ?? -1
+        const av = a.kind === 'business' ? (a.ratingAvg ?? -1) : -1
+        const bv = b.kind === 'business' ? (b.ratingAvg ?? -1) : -1
         if (bv !== av) return bv - av
-        if (b.ratingCount !== a.ratingCount) return b.ratingCount - a.ratingCount
-        return b.business.created_at.localeCompare(a.business.created_at)
+        const ac = a.kind === 'business' ? a.ratingCount : 0
+        const bc = b.kind === 'business' ? b.ratingCount : 0
+        if (bc !== ac) return bc - ac
+        return b.createdAt.localeCompare(a.createdAt)
       }
       if (effectiveSort === 'relevance') {
-        const ar = relevanceScore(a.business, qLower)
-        const br = relevanceScore(b.business, qLower)
+        const ar = a.kind === 'business' ? relevanceScore(a.business, qLower) : relevanceScore(a.listing, qLower)
+        const br = b.kind === 'business' ? relevanceScore(b.business, qLower) : relevanceScore(b.listing, qLower)
         if (br !== ar) return br - ar
-        const av = a.ratingAvg ?? -1
-        const bv = b.ratingAvg ?? -1
+        const av = a.kind === 'business' ? (a.ratingAvg ?? -1) : -1
+        const bv = b.kind === 'business' ? (b.ratingAvg ?? -1) : -1
         if (bv !== av) return bv - av
         if (a.distanceKm !== null && b.distanceKm !== null && a.distanceKm !== b.distanceKm) return a.distanceKm - b.distanceKm
-        return b.business.created_at.localeCompare(a.business.created_at)
+        return b.createdAt.localeCompare(a.createdAt)
       }
-      return b.business.created_at.localeCompare(a.business.created_at)
+      return b.createdAt.localeCompare(a.createdAt)
     })
   }, [
     businesses,
+    externalListings,
     category,
     debouncedQuery,
     effectiveSort,
@@ -424,6 +641,7 @@ export default function Home() {
   const featuredFavorite = useMemo(() => {
     if (!favorites.size) return null
     for (const x of filteredAll) {
+      if (x.kind !== 'business') continue
       if (favorites.has(x.business.id)) return x.business
     }
     return null
@@ -432,6 +650,7 @@ export default function Home() {
   const featuredTop = useMemo(() => {
     let best: { b: BusinessRow; avg: number; count: number } | null = null
     for (const x of filteredAll) {
+      if (x.kind !== 'business') continue
       const stats = ratingMap.get(x.business.id) ?? null
       const avg = stats?.avg ?? null
       const count = stats?.count ?? 0
@@ -575,7 +794,7 @@ export default function Home() {
             featuredFavoriteName={featuredFavorite?.name ?? null}
             onOpenFavorite={() => {
               if (!featuredFavorite) return
-              setSelectedId(featuredFavorite.id)
+              setSelectedId(`b:${featuredFavorite.id}`)
               window.setTimeout(() => {
                 document.getElementById('tb-results-top')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }, 50)
@@ -583,7 +802,7 @@ export default function Home() {
             featuredTopName={featuredTop?.name ?? null}
             onOpenTop={() => {
               if (!featuredTop) return
-              setSelectedId(featuredTop.id)
+              setSelectedId(`b:${featuredTop.id}`)
               window.setTimeout(() => {
                 document.getElementById('tb-results-top')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }, 50)
@@ -661,18 +880,35 @@ export default function Home() {
                 ) : (
                   <Suspense fallback={<Skeleton className="h-full w-full rounded-none" />}>
                     <MapView
-                      businesses={filteredAll.map((x) => ({
-                        id: x.business.id,
-                        lat: x.business.lat,
-                        lng: x.business.lng,
-                        name: x.business.name,
-                        category: x.business.category,
-                        ratingAvg: x.ratingAvg,
-                        reviewCount: x.ratingCount,
-                        avgPrice: x.avgPrice,
-                        hasToday: x.hasToday,
-                        isPaused: x.business.is_paused
-                      }))}
+                      businesses={filteredAll.map((x) =>
+                        x.kind === 'business'
+                          ? {
+                              id: x.id,
+                              lat: x.business.lat,
+                              lng: x.business.lng,
+                              name: x.business.name,
+                              category: x.business.category,
+                              ratingAvg: x.ratingAvg,
+                              reviewCount: x.ratingCount,
+                              avgPrice: x.avgPrice,
+                              hasToday: x.hasToday,
+                              isPaused: x.business.is_paused,
+                              kind: 'business',
+                              path: businessPublicPath(x.business),
+                            }
+                          : {
+                              id: x.id,
+                              lat: x.listing.lat as number,
+                              lng: x.listing.lng as number,
+                              name: x.listing.name,
+                              category: x.listing.category,
+                              isPaused: true,
+                              kind: 'external',
+                              path: x.listing.claimed_business_id
+                                ? `/attivita/${encodeURIComponent(x.listing.claimed_business_id)}`
+                                : `/scheda/${encodeURIComponent(x.listing.slug)}`,
+                            },
+                      )}
                       selectedBusinessId={selectedId}
                       onSelect={(id) => setSelectedId(id)}
                       center={userLoc}
@@ -702,7 +938,7 @@ export default function Home() {
               <div className="p-2 md:max-h-[520px] md:overflow-auto">
                 {loading ? (
                   <HomeResultsSkeleton rows={6} />
-                ) : businesses.length === 0 ? (
+                ) : businesses.length === 0 && externalListings.length === 0 ? (
                   <EmptyState
                     title="Nessuna attività ancora"
                     description="Per vedere risultati, crea almeno un profilo attività."
@@ -752,65 +988,78 @@ export default function Home() {
                   />
                 ) : (
                   <div className="space-y-2">
-                    {filteredVisible.map(({ business: b, distanceKm, ratingAvg, ratingCount, avgPrice, hasToday }) => {
-                      const active = selectedId === b.id
-                      const isFav = favorites.has(b.id)
-                      return (
-                        <BusinessResultCard
-                          key={b.id}
-                          business={b}
-                          active={active}
-                          distanceKm={distanceKm}
-                          avgRating={ratingAvg}
-                          reviewCount={ratingCount}
-                          avgPrice={avgPrice}
-                          hasToday={hasToday}
-                          userId={userId}
-                          isFav={isFav}
-                          onSelect={() => setSelectedId(b.id)}
-                          onToggleFavorite={() => {
-                            if (!userId) return
-                            setSeedError(null)
-                            setFavorites((prev) => {
-                              const next = new Set(prev)
-                              if (next.has(b.id)) next.delete(b.id)
-                              else next.add(b.id)
-                              return next
-                            })
+                    {filteredVisible.map((x) => {
+                      if (x.kind === 'business') {
+                        const b = x.business
+                        const active = selectedId === x.id
+                        const isFav = favorites.has(b.id)
+                        return (
+                          <BusinessResultCard
+                            key={x.id}
+                            business={b}
+                            active={active}
+                            distanceKm={x.distanceKm}
+                            avgRating={x.ratingAvg}
+                            reviewCount={x.ratingCount}
+                            avgPrice={x.avgPrice}
+                            hasToday={x.hasToday}
+                            userId={userId}
+                            isFav={isFav}
+                            onSelect={() => setSelectedId(x.id)}
+                            onToggleFavorite={() => {
+                              if (!userId) return
+                              setSeedError(null)
+                              setFavorites((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(b.id)) next.delete(b.id)
+                                else next.add(b.id)
+                                return next
+                              })
 
-                            ;(async () => {
-                              try {
-                                if (isFav) {
-                                  const { error } = await supabase
-                                    .from('favorite_businesses')
-                                    .delete()
-                                    .eq('user_id', userId)
-                                    .eq('business_id', b.id)
-                                  if (error) throw error
-                                } else {
-                                  const { error } = await supabase
-                                    .from('favorite_businesses')
-                                    .insert({ user_id: userId, business_id: b.id })
-                                  if (error) throw error
+                              ;(async () => {
+                                try {
+                                  if (isFav) {
+                                    const { error } = await supabase
+                                      .from('favorite_businesses')
+                                      .delete()
+                                      .eq('user_id', userId)
+                                      .eq('business_id', b.id)
+                                    if (error) throw error
+                                  } else {
+                                    const { error } = await supabase
+                                      .from('favorite_businesses')
+                                      .insert({ user_id: userId, business_id: b.id })
+                                    if (error) throw error
+                                  }
+
+                                  push({
+                                    tone: 'success',
+                                    title: isFav ? 'Rimosso dai preferiti' : 'Aggiunto ai preferiti',
+                                    description: b.name,
+                                  })
+                                } catch (e: unknown) {
+                                  setSeedError(errorMessage(e, 'Errore preferiti.'))
+                                  push({ tone: 'danger', title: 'Errore preferiti', description: 'Riprova tra poco.' })
+                                  setFavorites((prev) => {
+                                    const next = new Set(prev)
+                                    if (isFav) next.add(b.id)
+                                    else next.delete(b.id)
+                                    return next
+                                  })
                                 }
+                              })()
+                            }}
+                          />
+                        )
+                      }
 
-                                push({
-                                  tone: 'success',
-                                  title: isFav ? 'Rimosso dai preferiti' : 'Aggiunto ai preferiti',
-                                  description: b.name,
-                                })
-                              } catch (e: unknown) {
-                                setSeedError(errorMessage(e, 'Errore preferiti.'))
-                                push({ tone: 'danger', title: 'Errore preferiti', description: 'Riprova tra poco.' })
-                                setFavorites((prev) => {
-                                  const next = new Set(prev)
-                                  if (isFav) next.add(b.id)
-                                  else next.delete(b.id)
-                                  return next
-                                })
-                              }
-                            })()
-                          }}
+                      return (
+                        <ExternalListingResultCard
+                          key={x.id}
+                          listing={x.listing}
+                          active={selectedId === x.id}
+                          distanceKm={x.distanceKm}
+                          onSelect={() => setSelectedId(x.id)}
                         />
                       )
                     })}
@@ -819,6 +1068,21 @@ export default function Home() {
                       <div className="pt-2">
                         <Button type="button" variant="secondary" className="w-full" onClick={() => setVisibleCount((v) => v + 12)}>
                           Mostra altri ({filteredAll.length - filteredVisible.length})
+                        </Button>
+                      </div>
+                    ) : externalHasMore && !availabilityFilter && !priceFilter ? (
+                      <div className="pt-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="w-full"
+                          disabled={externalBusy}
+                          onClick={async () => {
+                            await loadMoreExternal()
+                            setVisibleCount((v) => v + 12)
+                          }}
+                        >
+                          {externalBusy ? 'Caricamento risultati…' : 'Carica altri risultati'}
                         </Button>
                       </div>
                     ) : null}

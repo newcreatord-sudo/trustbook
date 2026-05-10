@@ -1,3 +1,4 @@
+import { useEffect, useId } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Button from '@/shared/ui/Button'
@@ -13,29 +14,67 @@ export default function ConfirmDialog(props: {
   onCancel: () => void
   onConfirm: () => void
 }) {
-  if (!props.open) return null
+  const { open, busy, onCancel, onConfirm, title, description, confirmText: confirmTextProp, cancelText: cancelTextProp, tone } = props
+  const titleId = useId()
+  const descId = useId()
 
-  const confirmText = props.confirmText ?? 'Conferma'
-  const cancelText = props.cancelText ?? 'Annulla'
+  useEffect(() => {
+    if (!open || busy) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, busy, onCancel])
+
+  useEffect(() => {
+    if (!open) return
+    const prev = document.documentElement.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.documentElement.style.overflow = prev
+    }
+  }, [open])
+
+  if (!open) return null
+
+  const confirmText = confirmTextProp ?? 'Conferma'
+  const cancelText = cancelTextProp ?? 'Annulla'
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => (props.busy ? null : props.onCancel())} />
-      <div className="relative w-full max-w-md rounded-3xl border border-white/10 bg-[#0B1220] p-6 shadow-2xl shadow-black/50">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center px-4" role="presentation">
+      <div
+        className="absolute inset-0 bg-black/65 backdrop-blur-md transition-opacity"
+        aria-hidden
+        onClick={() => (busy ? undefined : onCancel())}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descId : undefined}
+        className="relative w-full max-w-md rounded-3xl border border-white/[0.1] bg-[#0d1526]/95 p-6 shadow-tbElevated outline-none ring-1 ring-white/[0.06] backdrop-blur-xl motion-safe:transition motion-safe:duration-200"
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-base font-bold text-white">{props.title}</div>
-            {props.description && <div className="mt-2 text-sm text-white/70 leading-relaxed">{props.description}</div>}
+            <div id={titleId} className="text-base font-semibold tracking-tight text-white">
+              {title}
+            </div>
+            {description ? (
+              <div id={descId} className="mt-2 text-sm leading-relaxed text-white/72">
+                {description}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
             onClick={() => {
-              if (props.busy) return
-              props.onCancel()
+              if (busy) return
+              onCancel()
             }}
             className={cn(
-              'rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10 hover:text-white',
-              props.busy && 'cursor-not-allowed opacity-60',
+              'rounded-xl border border-white/[0.1] bg-white/[0.06] p-2 text-white/72 transition hover:bg-white/[0.1] hover:text-white',
+              busy && 'cursor-not-allowed opacity-60',
             )}
             aria-label="Chiudi"
           >
@@ -44,16 +83,16 @@ export default function ConfirmDialog(props: {
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Button type="button" disabled={props.busy} onClick={props.onCancel} variant="secondary">
+          <Button type="button" disabled={busy} onClick={onCancel} variant="secondary">
             {cancelText}
           </Button>
           <Button
             type="button"
-            disabled={props.busy}
-            onClick={props.onConfirm}
-            variant={props.tone === 'danger' ? 'danger' : 'primary'}
+            loading={busy}
+            onClick={onConfirm}
+            variant={tone === 'danger' ? 'danger' : 'primary'}
           >
-            {props.busy ? 'Attendi…' : confirmText}
+            {confirmText}
           </Button>
         </div>
       </div>

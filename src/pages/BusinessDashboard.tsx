@@ -604,8 +604,8 @@ export default function BusinessDashboard() {
       dashboardBookingKpis !== null ? dashboardBookingKpis.today_active_count : todayActiveSample
     const todayTooltip =
       dashboardBookingKpis !== null
-        ? 'Appuntamenti di oggi ancora operativi (completati, no-show e cancellati esclusi). Totale completo dal database.'
-        : 'Appuntamenti di oggi ancora operativi, calcolati sul campione caricato in pagina (max ~3000 righe): può essere sottostimato finché il KPI server non è disponibile.'
+        ? 'Appuntamenti di oggi ancora da svolgere (completati, no-show e cancellati esclusi). Numero calcolato sul database.'
+        : 'Stesso conteggio basato sui dati già caricati in questa pagina: se hai molte prenotazioni, il numero può essere incompleto finché non sono attivi i KPI server.'
     const pendingClient = bookings.filter(
       (b) => b.status === 'requested' || b.status === 'pending_approval' || b.status === 'change_proposed',
     ).length
@@ -1374,12 +1374,11 @@ export default function BusinessDashboard() {
               <Card padded={false} className="p-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="tb-kicker">OPERATIVO</div>
-                    <div className="mt-1 text-base font-semibold text-white">Prenotazioni</div>
-                    <div className="mt-1 text-xs text-white/60">Conferme, esiti e no-show: tutto con stati tracciati.</div>
-                    <div className="mt-1 text-[11px] leading-snug text-white/45">
-                      «Oggi attivi» = slot ancora operativi (totale DB se la migrazione KPI è applicata). Tab{' '}
-                      <span className="text-white/55">Oggi · calendario</span> = tutti gli appuntamenti di oggi nel campione caricato.
+                    <div className="tb-kicker">APPUNTAMENTI</div>
+                    <div className="mt-1 text-base font-semibold text-white">Lista e azioni rapide</div>
+                    <div className="mt-2 max-w-xl text-xs leading-relaxed text-white/65">
+                      Controlla richieste, conferme e assenze. Usa «Oggi» per la giornata; «Tutte» attiva filtri e ricerca. Su ogni riga:
+                      Approva/Rifiuta, Chat e stato caparra quando serve.
                     </div>
                   </div>
                   <div className="hidden items-center gap-2 text-xs text-white/70 md:flex">
@@ -1387,13 +1386,13 @@ export default function BusinessDashboard() {
                       className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 underline decoration-white/25 decoration-dotted underline-offset-2"
                       title={bookingSummary.todayTooltip}
                     >
-                      Oggi attivi: <span className="text-white">{bookingSummary.today}</span>
+                      Oggi in corso: <span className="text-white">{bookingSummary.today}</span>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                      In attesa: <span className="text-white">{bookingSummary.pending}</span>
+                      Da confermare: <span className="text-white">{bookingSummary.pending}</span>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                      Caparre: <span className="text-white">{bookingSummary.deposit}</span>
+                      Caparra da saldare: <span className="text-white">{bookingSummary.deposit}</span>
                     </div>
                   </div>
                 </div>
@@ -1402,18 +1401,19 @@ export default function BusinessDashboard() {
                     className="rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-center underline decoration-white/25 decoration-dotted underline-offset-2"
                     title={bookingSummary.todayTooltip}
                   >
-                    Oggi attivi: <span className="text-white">{bookingSummary.today}</span>
+                    Oggi in corso: <span className="text-white">{bookingSummary.today}</span>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-center">
-                    Attesa: <span className="text-white">{bookingSummary.pending}</span>
+                    Da confermare: <span className="text-white">{bookingSummary.pending}</span>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-center">
-                    Caparre: <span className="text-white">{bookingSummary.deposit}</span>
+                    Caparra: <span className="text-white">{bookingSummary.deposit}</span>
                   </div>
                 </div>
 
                 <div className="mt-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <Tabs
+                    ariaLabel="Lista appuntamenti: oggi o tutte"
                     value={bookingView}
                     onChange={(k) => {
                       if (k === 'today' || k === 'all') setBookingView(k)
@@ -1435,7 +1435,7 @@ export default function BusinessDashboard() {
                         setBookingQuery('')
                       }}
                     >
-                      Vai alla lista completa
+                      Vedi tutte le prenotazioni
                     </Button>
                   )}
                   {bookingView === 'all' && (
@@ -1445,7 +1445,7 @@ export default function BusinessDashboard() {
                       variant="secondary"
                       onClick={() => setShowAdvancedBookingTools((v) => !v)}
                     >
-                      {showAdvancedBookingTools ? 'Nascondi strumenti avanzati' : 'Mostra strumenti avanzati'}
+                      {showAdvancedBookingTools ? 'Nascondi filtri avanzati' : 'Mostra filtri avanzati'}
                     </Button>
                   )}
                 </div>
@@ -1481,9 +1481,16 @@ export default function BusinessDashboard() {
                 )}
 
                 <Card padded={false} className={cn('mt-3 p-3', bookingView !== 'all' && 'mt-4')}>
+                  <div className="mb-3">
+                    <div className="tb-label">Filtro per cliente</div>
+                    <p className="mt-0.5 text-[11px] leading-snug text-white/45">
+                      Opzionale: rischio o tag interni. Non sostituisce i filtri «Filtra la lista» sopra.
+                    </p>
+                  </div>
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div className="-mx-1 overflow-x-auto px-1">
                       <Tabs
+                        ariaLabel="Filtro clienti per rischio e tag"
                         value={customerFilter}
                         onChange={(k) => setCustomerFilter(k as typeof customerFilter)}
                         items={[

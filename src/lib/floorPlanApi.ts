@@ -129,6 +129,21 @@ export interface OccupiedResourceAt {
   status: string
 }
 
+export interface PublicFloorPlanBundle {
+  floor_plan_id: string
+  floor_plan_name: string
+  floor_plan_is_active: boolean
+  layout_json: LayoutJson
+  resources_json: Array<{
+    id: string
+    label: string
+    kind: ResourceKind
+    capacity_min: number
+    capacity_max: number
+  }>
+  resource_count: number
+}
+
 /** Limite nodi salvati per piano (payload sicuro / prestazioni JSON). */
 export const MAX_LAYOUT_NODES = 400
 
@@ -276,6 +291,21 @@ export async function getFloorPlanBundle(
   return (data as FloorPlanBundle[]).map((bundle) => ({
     ...bundle,
     layout_json: parseLayoutJson(bundle.layout_json),
+  }))
+}
+
+export async function getPublicFloorPlanBundle(
+  businessId: string,
+): Promise<PublicFloorPlanBundle[]> {
+  const { data, error } = await supabase.rpc('get_public_floor_plan_bundle', {
+    p_business_id: businessId,
+  })
+  if (error) throw error
+  if (!data) return []
+  return (data as Array<Omit<PublicFloorPlanBundle, 'layout_json'> & { layout_json: unknown }>).map((bundle) => ({
+    ...bundle,
+    layout_json: parseLayoutJson(bundle.layout_json),
+    resources_json: Array.isArray(bundle.resources_json) ? bundle.resources_json : [],
   }))
 }
 

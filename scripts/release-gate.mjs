@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import dotenv from 'dotenv'
 
@@ -6,6 +7,12 @@ const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
 if (envFileArg) {
   const envFile = envFileArg.slice('--env-file='.length).trim()
   if (envFile) dotenv.config({ path: resolve(process.cwd(), envFile), override: true })
+  if (envFile) {
+    const local = `${envFile}.local`
+    if (existsSync(resolve(process.cwd(), local))) {
+      dotenv.config({ path: resolve(process.cwd(), local), override: true })
+    }
+  }
 }
 
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })

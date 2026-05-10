@@ -5,6 +5,8 @@ import type { ProfileRow, UserRole } from '@/domain/supabase'
 export type AuthContextValue = {
   session: Session | null
   profile: ProfileRow | null
+  profileLoading: boolean
+  profileError: string | null
   loading: boolean
   signIn: (params: { email: string; password: string }) => Promise<{ ok: true } | { ok: false; error: string }>
 
@@ -32,4 +34,3 @@ export function useAuth() {
   if (!ctx) throw new Error('AuthProvider missing')
   return ctx
 }
-

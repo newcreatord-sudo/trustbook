@@ -31,6 +31,18 @@ dotenv.config({ path: '.env' })
 
 const app: express.Application = express()
 
+app.disable('x-powered-by')
+app.use((req: Request, res: Response, next: NextFunction) => {
+  void req
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains')
+  }
+  next()
+})
+
 function parseOrigins(v: string | undefined): string[] {
   if (!v) return []
   return v
@@ -115,7 +127,9 @@ app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
   const msg =
     e.type === 'entity.parse.failed'
       ? 'Invalid JSON'
-      : error?.message || 'Server internal error'
+      : status >= 500 && process.env.NODE_ENV === 'production'
+        ? 'Server internal error'
+        : error?.message || 'Server internal error'
   void req
   void next
   res.status(status).json({

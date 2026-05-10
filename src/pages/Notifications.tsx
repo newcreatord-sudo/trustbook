@@ -32,7 +32,8 @@ export default function Notifications() {
   const [rows, setRows] = useState<NotificationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busyAll, setBusyAll] = useState(false)
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const [prefs, setPrefs] = useState<UserPreferences>({ ...defaultUserPreferences })
 
   useEffect(() => {
@@ -45,29 +46,42 @@ export default function Notifications() {
     setLoading(true)
     setError(null)
 
-    ;(async () => {
+    const refetchTimerRef = { current: null as number | null }
+
+    const load = async () => {
+      const nowIso = new Date().toISOString()
+      const [nRes, pRes] = await Promise.all([
+        supabase
+          .from('notifications')
+          .select('*')
+          .eq('recipient_user_id', userId)
+          .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
+      ])
+      if (!mounted) return
+      if (nRes.error) throw nRes.error
+      if (pRes.error) throw pRes.error
+      setRows(
+        sortNotifications(
+          ((((nRes.data as unknown[]) ?? []) as unknown[]).map((x) => safeParseNotificationRow(x)).filter(Boolean) as NotificationRow[]) ??
+            [],
+        ),
+      )
+      setPrefs(prefsFromRow(pRes.data ? safeParseUserPreferencesRow(pRes.data) : null))
+    }
+
+    const scheduleLoad = () => {
+      if (refetchTimerRef.current) window.clearTimeout(refetchTimerRef.current)
+      refetchTimerRef.current = window.setTimeout(() => {
+        void load().catch(() => {})
+      }, 250)
+    }
+
+    void (async () => {
       try {
-        const nowIso = new Date().toISOString()
-        const [nRes, pRes] = await Promise.all([
-          supabase
-            .from('notifications')
-            .select('*')
-            .eq('recipient_user_id', userId)
-            .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
-            .order('created_at', { ascending: false })
-            .limit(50),
-          supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
-        ])
-        if (!mounted) return
-        if (nRes.error) throw nRes.error
-        if (pRes.error) throw pRes.error
-        setRows(
-          sortNotifications(
-            ((((nRes.data as unknown[]) ?? []) as unknown[]).map((x) => safeParseNotificationRow(x)).filter(Boolean) as NotificationRow[]) ??
-              [],
-          ),
-        )
-        setPrefs(prefsFromRow(pRes.data ? safeParseUserPreferencesRow(pRes.data) : null))
+        await load()
       } catch (e: unknown) {
         if (!mounted) return
         setError(errorMessage(e, 'Errore caricamento notifiche.'))
@@ -81,35 +95,13 @@ export default function Notifications() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications', filter: `recipient_user_id=eq.${userId}` },
-        () => {
-          void (async () => {
-            try {
-              const nowIso = new Date().toISOString()
-              const { data, error } = await supabase
-                .from('notifications')
-                .select('*')
-                .eq('recipient_user_id', userId)
-                .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
-                .order('created_at', { ascending: false })
-                .limit(50)
-              if (!mounted) return
-              if (error) throw error
-              setRows(
-                sortNotifications(
-                  ((((data as unknown[]) ?? []) as unknown[]).map((x) => safeParseNotificationRow(x)).filter(Boolean) as NotificationRow[]) ??
-                    [],
-                ),
-              )
-            } catch (e: unknown) {
-              void e
-            }
-          })()
-        },
+        () => scheduleLoad(),
       )
       .subscribe()
 
     return () => {
       mounted = false
+      if (refetchTimerRef.current) window.clearTimeout(refetchTimerRef.current)
       void supabase.removeChannel(ch)
     }
   }, [userId])
@@ -131,13 +123,16 @@ export default function Notifications() {
               variant="secondary"
               size="sm"
               leftIcon={<CheckCircle2 className="h-4 w-4" />}
-              disabled={busy || visibleUnread === 0}
+              disabled={busyAll || visibleUnread === 0}
               onClick={() => {
                 if (!userId) return
-                setBusy(true)
+                if (busyAll) return
+                const nowIso = new Date().toISOString()
+                setBusyAll(true)
+                setRows((prev) => prev.map((r) => (!r.read_at ? { ...r, read_at: nowIso } : r)))
+                window.dispatchEvent(new Event('tb:refresh-notifs'))
                 ;(async () => {
                   try {
-                    const nowIso = new Date().toISOString()
                     const { error } = await supabase
                       .from('notifications')
                       .update({ read_at: new Date().toISOString() })
@@ -147,8 +142,9 @@ export default function Notifications() {
                     if (error) throw error
                   } catch (e: unknown) {
                     setError(errorMessage(e, 'Errore aggiornamento notifiche.'))
+                    window.dispatchEvent(new Event('tb:refresh-notifs'))
                   } finally {
-                    setBusy(false)
+                    setBusyAll(false)
                   }
                 })()
               }}
@@ -227,11 +223,18 @@ export default function Notifications() {
                         variant="secondary"
                         size="sm"
                         className="w-full sm:w-auto opacity-50 hover:opacity-100"
-                        disabled={busy || Boolean(n.read_at)}
+                        disabled={busyAll || busyIds.has(n.id) || Boolean(n.read_at)}
                         onClick={() => {
                           if (!userId) return
                           if (n.read_at) return
-                          setBusy(true)
+                          const nowIso = new Date().toISOString()
+                          setBusyIds((prev) => {
+                            const next = new Set(prev)
+                            next.add(n.id)
+                            return next
+                          })
+                          setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read_at: nowIso } : r)))
+                          window.dispatchEvent(new Event('tb:refresh-notifs'))
                           ;(async () => {
                             try {
                               const { error } = await supabase
@@ -242,8 +245,13 @@ export default function Notifications() {
                               if (error) throw error
                             } catch (e: unknown) {
                               setError(errorMessage(e, 'Errore aggiornamento.'))
+                              window.dispatchEvent(new Event('tb:refresh-notifs'))
                             } finally {
-                              setBusy(false)
+                              setBusyIds((prev) => {
+                                const next = new Set(prev)
+                                next.delete(n.id)
+                                return next
+                              })
                             }
                           })()
                         }}

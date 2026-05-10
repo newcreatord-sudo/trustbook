@@ -23,8 +23,7 @@ function readEnvAny(names) {
 }
 
 function fail(msg) {
-  process.stderr.write(`[smoke-live-e2e] ${msg}\n`)
-  process.exit(1)
+  throw new Error(`[smoke-live-e2e] ${msg}`)
 }
 
 function redactToken(t) {
@@ -42,8 +41,8 @@ function mergedHeaders(existing, extra) {
 }
 
 async function expectOk(res, label) {
-  if (res.ok) return
   const txt = await res.text().catch(() => '')
+  if (res.ok) return
   fail(`${label} failed: HTTP ${res.status} ${txt}`)
 }
 
@@ -75,19 +74,25 @@ function formatDatePartsKey(parts) {
 const baseUrl = baseUrlFromEnv()
 if (!baseUrl) fail('Missing --base-url or APP_BASE_URL/VITE_APP_URL')
 
-const supabaseUrl = readEnvAny(['SUPABASE_URL', 'VITE_SUPABASE_URL'])
-const supabaseAnon = readEnvAny(['SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY_'])
-if (!supabaseUrl) fail('Missing SUPABASE_URL/VITE_SUPABASE_URL')
-if (!supabaseAnon) fail('Missing SUPABASE_ANON_KEY/VITE_SUPABASE_ANON_KEY')
-const supabaseServiceRole = readEnvAny(['SUPABASE_SERVICE_ROLE_KEY'])
-const sbService = supabaseServiceRole
-  ? createClient(supabaseUrl, supabaseServiceRole, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    })
-  : null
+const supabaseUrlArg = process.argv.find((x) => x.startsWith('--supabase-url=')) ?? null
+const supabaseAnonArg = process.argv.find((x) => x.startsWith('--supabase-anon-key=')) ?? null
+const supabaseServiceRoleArg = process.argv.find((x) => x.startsWith('--supabase-service-role-key=')) ?? null
+const vercelBypassArg = process.argv.find((x) => x.startsWith('--vercel-bypass=')) ?? null
+const adminSignupTokenArg = process.argv.find((x) => x.startsWith('--admin-signup-token=')) ?? null
+const noServiceRole = process.argv.includes('--no-service-role') || readEnvAny(['E2E_NO_SERVICE_ROLE']) === '1'
 
-const vercelBypass = readEnvAny(['VERCEL_AUTOMATION_BYPASS_SECRET'])
-const adminSignupToken = readEnvAny(['AUTH_ADMIN_SIGNUP_TOKEN', 'ADMIN_SIGNUP_TOKEN'])
+const cliSupabaseUrl = supabaseUrlArg?.slice('--supabase-url='.length).trim() || null
+const cliSupabaseAnon = supabaseAnonArg?.slice('--supabase-anon-key='.length).trim() || null
+const cliSupabaseServiceRole = supabaseServiceRoleArg?.slice('--supabase-service-role-key='.length).trim() || null
+
+let supabaseUrl = cliSupabaseUrl || null
+let supabaseAnon = cliSupabaseAnon || null
+let supabaseServiceRole = cliSupabaseServiceRole || null
+if (noServiceRole) supabaseServiceRole = null
+
+const vercelBypass = vercelBypassArg?.slice('--vercel-bypass='.length).trim() || readEnvAny(['VERCEL_AUTOMATION_BYPASS_SECRET'])
+const adminSignupToken =
+  adminSignupTokenArg?.slice('--admin-signup-token='.length).trim() || readEnvAny(['AUTH_ADMIN_SIGNUP_TOKEN', 'ADMIN_SIGNUP_TOKEN'])
 const allowProd = readEnvAny(['E2E_ALLOW_PROD']) === '1'
 
 if (!allowProd) {
@@ -101,6 +106,59 @@ async function fetchTb(path, init) {
   const extra = vercelBypass ? { 'x-vercel-protection-bypass': vercelBypass } : null
   const headers = extra ? mergedHeaders(init?.headers, extra) : init?.headers
   return fetch(url, { ...(init || {}), headers })
+}
+
+async function deriveSupabasePublicConfigFromDeploy() {
+  try {
+    const htmlRes = await fetchTb('/')
+    const html = await htmlRes.text().catch(() => '')
+    if (!htmlRes.ok || !html) return null
+
+    const scriptSrc =
+      html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/i)?.[1] ??
+      html.match(/<script[^>]+src="([^"]+\/assets\/index-[^"]+\.js)"/i)?.[1] ??
+      null
+    if (!scriptSrc) return null
+
+    const jsRes = await fetchTb(scriptSrc)
+    const js = await jsRes.text().catch(() => '')
+    if (!jsRes.ok || !js) return null
+
+    const url = js.match(/https:\/\/[a-z0-9]{6,}\.supabase\.co/gi)?.[0] ?? null
+    const jwtMatches = js.match(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g) ?? []
+    const jwt = jwtMatches.sort((a, b) => b.length - a.length)[0] ?? null
+    if (!url || !jwt) return null
+
+    return { supabaseUrl: url, supabaseAnon: jwt }
+  } catch {
+    return null
+  }
+}
+
+async function ensureSupabaseConfig() {
+  if (cliSupabaseUrl && cliSupabaseAnon) return
+
+  const derived = await deriveSupabasePublicConfigFromDeploy()
+  if (derived) {
+    if (!cliSupabaseUrl) supabaseUrl = derived.supabaseUrl
+    if (!cliSupabaseAnon) supabaseAnon = derived.supabaseAnon
+  }
+
+  if (!supabaseUrl) supabaseUrl = readEnvAny(['SUPABASE_URL', 'VITE_SUPABASE_URL'])
+  if (!supabaseAnon) {
+    supabaseAnon = readEnvAny(['SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY_'])
+  }
+  if (!supabaseServiceRole && !noServiceRole) supabaseServiceRole = readEnvAny(['SUPABASE_SERVICE_ROLE_KEY'])
+
+  if (!supabaseUrl) fail('Missing SUPABASE_URL/VITE_SUPABASE_URL (or pass --supabase-url)')
+  if (!supabaseAnon) fail('Missing SUPABASE_ANON_KEY/VITE_SUPABASE_ANON_KEY (or pass --supabase-anon-key)')
+}
+
+function getServiceClient() {
+  if (!supabaseUrl || !supabaseServiceRole) return null
+  return createClient(supabaseUrl, supabaseServiceRole, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
 }
 
 function randTag() {
@@ -158,10 +216,12 @@ async function ensureUser(params) {
     lastName: params.lastName,
   })
   if (apiRes.ok) return { ok: true, via: 'api' }
-  if (apiRes.reason === 'http-403') {
-    const svcRes = await serviceCreateUser(params)
-    if (svcRes.ok) return { ok: true, via: 'service-role' }
-  }
+  if (!supabaseServiceRole) return apiRes
+
+  const svcRes = await serviceCreateUser(params)
+  if (svcRes.ok) return { ok: true, via: 'service-role' }
+
+  if (apiRes.reason === 'missing-token') return svcRes
   return apiRes
 }
 
@@ -244,19 +304,14 @@ async function createBooking(sb, params) {
   return { id, status: typeof status === 'string' ? status : null }
 }
 
-async function cancelBookingViaApi(params) {
-  const res = await fetchTb('/api/stripe/deposit/cancel', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${params.accessToken}`,
-    },
-    body: JSON.stringify({ bookingId: params.bookingId }),
+async function cancelBookingViaRpc(sb, params) {
+  const { data, error } = await sb.rpc('transition_booking_state', {
+    p_booking_id: params.bookingId,
+    p_next_status: 'cancelled_by_customer',
+    p_touch_cancelled_at: true,
   })
-  await expectOk(res, 'POST /api/stripe/deposit/cancel')
-  const json = await res.json().catch(() => null)
-  if (!json || json.success !== true) throw new Error('cancel payload invalid')
-  return json
+  if (error) throw error
+  return data
 }
 
 async function createBusinessWithDefaults(sb, params) {
@@ -326,6 +381,7 @@ async function markBookingStatus(sb, params) {
 }
 
 async function forceBookingInPastForReview(params) {
+  const sbService = getServiceClient()
   if (!sbService) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY (required for review time-travel)')
   const now = new Date()
   const endAt = new Date(now.getTime() - 45 * 60_000)
@@ -352,130 +408,156 @@ async function assertHasNotifications(sb, userId) {
   return rows.length
 }
 
-process.stdout.write(`[smoke-live-e2e] baseUrl=${baseUrl}\n`)
-process.stdout.write(
-  `[smoke-live-e2e] supabaseUrl=${new URL(supabaseUrl).hostname} adminSignupToken=${adminSignupToken ? redactToken(adminSignupToken) : '—'} vercelBypass=${vercelBypass ? redactToken(vercelBypass) : '—'}\n`,
-)
+async function main() {
+  await ensureSupabaseConfig()
 
-const health = await fetchTb('/api/health')
-await expectOk(health, 'GET /api/health')
+  process.stdout.write(`[smoke-live-e2e] baseUrl=${baseUrl}\n`)
+  process.stdout.write(
+    `[smoke-live-e2e] supabaseUrl=${new URL(supabaseUrl).hostname} serviceRole=${supabaseServiceRole ? redactToken(supabaseServiceRole) : '—'} adminSignupToken=${adminSignupToken ? redactToken(adminSignupToken) : '—'} vercelBypass=${vercelBypass ? redactToken(vercelBypass) : '—'}\n`,
+  )
 
-const tag = randTag()
-const customerEmail = readEnvAny(['E2E_CUSTOMER_EMAIL']) ?? `e2e.customer+${tag}@example.com`
-const customerPass = readEnvAny(['E2E_CUSTOMER_PASSWORD']) ?? `TB!${tag}aA1`
-const ownerEmail = readEnvAny(['E2E_OWNER_EMAIL']) ?? `e2e.owner+${tag}@example.com`
-const ownerPass = readEnvAny(['E2E_OWNER_PASSWORD']) ?? `TB!${tag}aA1`
+  const health = await fetchTb('/api/health')
+  await expectOk(health, 'GET /api/health')
 
-const customerSignup = await ensureUser({
-  email: customerEmail,
-  password: customerPass,
-  role: 'cliente',
-  firstName: 'E2E',
-  lastName: 'Customer',
-})
-if (!customerSignup.ok) {
-  process.stdout.write(`[smoke-live-e2e] WARN customer creation skipped: ${customerSignup.reason}\n`)
-}
+  const tag = randTag()
+  const customerEmailEnv = readEnvAny(['E2E_CUSTOMER_EMAIL'])
+  const customerPassEnv = readEnvAny(['E2E_CUSTOMER_PASSWORD'])
+  const ownerEmailEnv = readEnvAny(['E2E_OWNER_EMAIL'])
+  const ownerPassEnv = readEnvAny(['E2E_OWNER_PASSWORD'])
 
-const ownerSignup = await ensureUser({
-  email: ownerEmail,
-  password: ownerPass,
-  role: 'attivita',
-  firstName: 'E2E',
-  lastName: 'Owner',
-})
-if (!ownerSignup.ok) {
-  process.stdout.write(`[smoke-live-e2e] WARN owner creation skipped: ${ownerSignup.reason}\n`)
-}
+  const customerEmail = customerEmailEnv ?? `e2e.customer+${tag}@example.com`
+  const customerPass = customerPassEnv ?? `TB!${tag}aA1`
+  const ownerEmail = ownerEmailEnv ?? `e2e.owner+${tag}@example.com`
+  const ownerPass = ownerPassEnv ?? `TB!${tag}aA1`
 
-const { sb: sbCustomer, session: customerSession } = await signIn({ email: customerEmail, password: customerPass })
-const customerUserId = customerSession.user?.id
-if (!customerUserId) fail('Customer session missing user id')
-
-const { sb: sbOwner, session: ownerSession } = await signIn({ email: ownerEmail, password: ownerPass })
-const ownerUserId = ownerSession.user?.id
-if (!ownerUserId) fail('Owner session missing user id')
-
-const createdBiz = await createBusinessWithDefaults(sbOwner, {
-  ownerUserId,
-  email: ownerEmail,
-  name: `E2E Business ${tag}`,
-})
-
-const svc = await pickService(sbOwner, createdBiz.id)
-const timeZone = 'Europe/Rome'
-const day = new Date(Date.now() + 24 * 60 * 60_000)
-const slots = await listSlots(sbCustomer, {
-  businessId: createdBiz.id,
-  serviceId: svc.id,
-  day,
-  timeZone,
-})
-if (!slots.length) fail('No bookable slots returned')
-
-const booking = await createBooking(sbCustomer, {
-  businessId: createdBiz.id,
-  serviceId: svc.id,
-  startAt: slots[0].startAt,
-  endAt: slots[0].endAt,
-})
-
-process.stdout.write(`[smoke-live-e2e] bookingId=${booking.id} status=${booking.status ?? '—'}\n`)
-
-if (booking.status === 'requested' || booking.status === 'pending_approval') {
-  const now = new Date().toISOString()
-  await markBookingStatus(sbOwner, {
-    bookingId: booking.id,
-    patch: { status: 'confirmed', confirmed_at: now, approved_by_user_id: ownerUserId },
+  const customerSignup = await ensureUser({
+    email: customerEmail,
+    password: customerPass,
+    role: 'cliente',
+    firstName: 'E2E',
+    lastName: 'Customer',
   })
+  if (!customerSignup.ok) {
+    const det = customerSignup.details ? ` ${String(customerSignup.details).slice(0, 180)}` : ''
+    process.stdout.write(`[smoke-live-e2e] WARN customer creation skipped: ${customerSignup.reason}${det}\n`)
+    if (!customerEmailEnv) {
+      fail('Cannot create customer user. Provide AUTH_ADMIN_SIGNUP_TOKEN / SUPABASE_SERVICE_ROLE_KEY, or set E2E_CUSTOMER_EMAIL + E2E_CUSTOMER_PASSWORD for an existing user.')
+    }
+  }
+
+  const ownerSignup = await ensureUser({
+    email: ownerEmail,
+    password: ownerPass,
+    role: 'attivita',
+    firstName: 'E2E',
+    lastName: 'Owner',
+  })
+  if (!ownerSignup.ok) {
+    const det = ownerSignup.details ? ` ${String(ownerSignup.details).slice(0, 180)}` : ''
+    process.stdout.write(`[smoke-live-e2e] WARN owner creation skipped: ${ownerSignup.reason}${det}\n`)
+    if (!ownerEmailEnv) {
+      fail('Cannot create owner user. Provide AUTH_ADMIN_SIGNUP_TOKEN / SUPABASE_SERVICE_ROLE_KEY, or set E2E_OWNER_EMAIL + E2E_OWNER_PASSWORD for an existing user.')
+    }
+  }
+
+  const { sb: sbCustomer, session: customerSession } = await signIn({ email: customerEmail, password: customerPass })
+  const customerUserId = customerSession.user?.id
+  if (!customerUserId) fail('Customer session missing user id')
+
+  const { sb: sbOwner, session: ownerSession } = await signIn({ email: ownerEmail, password: ownerPass })
+  const ownerUserId = ownerSession.user?.id
+  if (!ownerUserId) fail('Owner session missing user id')
+
+  const createdBiz = await createBusinessWithDefaults(sbOwner, {
+    ownerUserId,
+    email: ownerEmail,
+    name: `E2E Business ${tag}`,
+  })
+
+  const svc = await pickService(sbOwner, createdBiz.id)
+  const timeZone = 'Europe/Rome'
+  const day = new Date(Date.now() + 24 * 60 * 60_000)
+  const slots = await listSlots(sbCustomer, {
+    businessId: createdBiz.id,
+    serviceId: svc.id,
+    day,
+    timeZone,
+  })
+  if (!slots.length) fail('No bookable slots returned')
+
+  const booking = await createBooking(sbCustomer, {
+    businessId: createdBiz.id,
+    serviceId: svc.id,
+    startAt: slots[0].startAt,
+    endAt: slots[0].endAt,
+  })
+
+  process.stdout.write(`[smoke-live-e2e] bookingId=${booking.id} status=${booking.status ?? '—'}\n`)
+
+  if (booking.status === 'requested' || booking.status === 'pending_approval') {
+    const now = new Date().toISOString()
+    await markBookingStatus(sbOwner, {
+      bookingId: booking.id,
+      patch: { status: 'confirmed', confirmed_at: now, approved_by_user_id: ownerUserId },
+    })
+  }
+
+  await cancelBookingViaRpc(sbCustomer, { bookingId: booking.id })
+
+  const slots2 = slots[1] ? slots : await listSlots(sbCustomer, { businessId: createdBiz.id, serviceId: svc.id, day, timeZone })
+  if (!slots2.length) fail('No bookable slots returned (second booking)')
+  const slotForSecond = slots2[1] ?? slots2[0]
+
+  const booking2 = await createBooking(sbCustomer, {
+    businessId: createdBiz.id,
+    serviceId: svc.id,
+    startAt: slotForSecond.startAt,
+    endAt: slotForSecond.endAt,
+  })
+
+  process.stdout.write(`[smoke-live-e2e] booking2Id=${booking2.id} status=${booking2.status ?? '—'}\n`)
+
+  if (booking2.status === 'requested' || booking2.status === 'pending_approval') {
+    const now = new Date().toISOString()
+    await markBookingStatus(sbOwner, {
+      bookingId: booking2.id,
+      patch: { status: 'confirmed', confirmed_at: now, approved_by_user_id: ownerUserId },
+    })
+  }
+
+  {
+    const now = new Date().toISOString()
+    await markBookingStatus(sbOwner, {
+      bookingId: booking2.id,
+      patch: { status: 'completed', completed_at: now },
+    })
+  }
+
+  if (supabaseServiceRole) {
+    await forceBookingInPastForReview({ bookingId: booking2.id })
+
+    {
+      const { error } = await sbCustomer.from('reviews').insert({
+        booking_id: booking2.id,
+        business_id: createdBiz.id,
+        author_user_id: customerUserId,
+        direction: 'customer_to_business',
+        rating: 5,
+        comment: `E2E OK ${tag}`,
+      })
+      if (error) throw error
+    }
+  } else {
+    process.stdout.write('[smoke-live-e2e] WARN skipping review flow: missing SUPABASE_SERVICE_ROLE_KEY\n')
+  }
+
+  const notifCount = await assertHasNotifications(sbCustomer, customerUserId)
+  if (notifCount <= 0) fail('Expected at least 1 notification for customer')
+
+  process.stdout.write(`[smoke-live-e2e] OK notifications=${notifCount}\n`)
 }
 
-await cancelBookingViaApi({ bookingId: booking.id, accessToken: customerSession.access_token })
-
-const slots2 = slots[1] ? slots : await listSlots(sbCustomer, { businessId: createdBiz.id, serviceId: svc.id, day, timeZone })
-if (!slots2.length) fail('No bookable slots returned (second booking)')
-const slotForSecond = slots2[1] ?? slots2[0]
-
-const booking2 = await createBooking(sbCustomer, {
-  businessId: createdBiz.id,
-  serviceId: svc.id,
-  startAt: slotForSecond.startAt,
-  endAt: slotForSecond.endAt,
+main().catch((e) => {
+  process.stderr.write(`${String(e?.message || e)}\n`)
+  process.exitCode = 1
 })
-
-process.stdout.write(`[smoke-live-e2e] booking2Id=${booking2.id} status=${booking2.status ?? '—'}\n`)
-
-if (booking2.status === 'requested' || booking2.status === 'pending_approval') {
-  const now = new Date().toISOString()
-  await markBookingStatus(sbOwner, {
-    bookingId: booking2.id,
-    patch: { status: 'confirmed', confirmed_at: now, approved_by_user_id: ownerUserId },
-  })
-}
-
-{
-  const now = new Date().toISOString()
-  await markBookingStatus(sbOwner, {
-    bookingId: booking2.id,
-    patch: { status: 'completed', completed_at: now },
-  })
-}
-
-await forceBookingInPastForReview({ bookingId: booking2.id })
-
-{
-  const { error } = await sbCustomer.from('reviews').insert({
-    booking_id: booking2.id,
-    business_id: createdBiz.id,
-    author_user_id: customerUserId,
-    direction: 'customer_to_business',
-    rating: 5,
-    comment: `E2E OK ${tag}`,
-  })
-  if (error) throw error
-}
-
-const notifCount = await assertHasNotifications(sbCustomer, customerUserId)
-if (notifCount <= 0) fail('Expected at least 1 notification for customer')
-
-process.stdout.write(`[smoke-live-e2e] OK notifications=${notifCount}\n`)

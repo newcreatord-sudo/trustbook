@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import RoleGate from '@/components/RoleGate'
@@ -8,6 +8,7 @@ import { AppEntryWithSuspense } from '@/pages/AppEntry'
 const Login = lazy(() => import('@/pages/Login'))
 const Start = lazy(() => import('@/pages/Start'))
 const Home = lazy(() => import('@/pages/Home'))
+const ExternalListingDetail = lazy(() => import('@/pages/ExternalListingDetail'))
 const BusinessDetail = lazy(() => import('@/pages/BusinessDetail'))
 const Bookings = lazy(() => import('@/pages/Bookings'))
 const BusinessDashboard = lazy(() => import('@/pages/BusinessDashboard'))
@@ -31,10 +32,41 @@ function PageFallback() {
   )
 }
 
+function CanonicalHostRedirect() {
+  useEffect(() => {
+    if (!import.meta.env.PROD) return
+    const raw = String(import.meta.env.VITE_APP_URL ?? '').trim()
+    if (!raw) return
+    let canonical: URL
+    try {
+      canonical = new URL(raw)
+    } catch {
+      return
+    }
+
+    const canonicalHost = canonical.hostname.toLowerCase()
+    const altHost = canonicalHost.startsWith('www.')
+      ? canonicalHost.slice(4)
+      : `www.${canonicalHost}`
+    const currentHost = window.location.hostname.toLowerCase()
+    if (currentHost !== canonicalHost && currentHost !== altHost) return
+    if (window.location.origin === canonical.origin) return
+
+    const next =
+      canonical.origin +
+      window.location.pathname +
+      window.location.search +
+      window.location.hash
+    window.location.replace(next)
+  }, [])
+  return null
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <Router>
+        <CanonicalHostRedirect />
         <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/start" element={<Start />} />
@@ -45,17 +77,25 @@ export default function App() {
           <Route
             path="/esplora"
             element={
-              <ProtectedRoute>
-                <Home />
-              </ProtectedRoute>
+              <Home />
+            }
+          />
+          <Route
+            path="/scheda/:slug"
+            element={
+              <ExternalListingDetail />
             }
           />
           <Route
             path="/attivita/:id"
             element={
-              <ProtectedRoute>
-                <BusinessDetail />
-              </ProtectedRoute>
+              <BusinessDetail />
+            }
+          />
+          <Route
+            path="/b/:slug"
+            element={
+              <BusinessDetail />
             }
           />
           <Route

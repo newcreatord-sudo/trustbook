@@ -19,6 +19,7 @@ import EmptyState from '@/shared/ui/EmptyState'
 import Button from '@/shared/ui/Button'
 import Input from '@/shared/ui/Input'
 import Select from '@/shared/ui/Select'
+import { useToast } from '@/shared/ui/toastContext'
 import {
   customerReviewBlockedMessage,
   customerReviewEligibility,
@@ -33,6 +34,7 @@ export default function Bookings() {
   const accessToken = session?.access_token ?? null
   const nav = useNavigate()
   const loc = useLocation()
+  const { push } = useToast()
 
   type BookingWithBusiness = BookingRow & {
     businesses: { name: string; cancellation_window_min: number | null; booking_lead_time_min: number | null } | null
@@ -74,11 +76,32 @@ export default function Bookings() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!userId || !accessToken) return
     const params = new URLSearchParams(loc.search)
     const deposit = params.get('deposit')
     const sessionId = params.get('session_id')
+
+    const cleanDepositParams = () => {
+      const next = new URLSearchParams(loc.search)
+      const had = next.has('deposit') || next.has('session_id')
+      next.delete('deposit')
+      next.delete('session_id')
+      if (!had) return
+      const search = next.toString()
+      nav({ pathname: loc.pathname, search: search ? `?${search}` : '' }, { replace: true })
+    }
+
+    if (deposit === 'cancelled') {
+      push({
+        tone: 'warning',
+        title: 'Pagamento annullato',
+        description: 'La caparra non è stata addebitata.',
+      })
+      cleanDepositParams()
+      return
+    }
+
     if (deposit !== 'success' || !sessionId) return
+    if (!userId || !accessToken) return
 
     setError(null)
     setBusyId('deposit-verify')
@@ -94,15 +117,22 @@ export default function Bookings() {
         })
         const json = (await res.json()) as { success: boolean; paid?: boolean; bookingId?: string; error?: string }
         if (!res.ok || !json.success) throw new Error(json.error || 'Verifica pagamento fallita')
-        // Reliability delta is handled by DB trigger on status/deposit update!
+        push({
+          tone: 'success',
+          title: 'Caparra pagata',
+          description: 'La prenotazione verrà aggiornata a breve.',
+        })
+        window.dispatchEvent(new Event('tb:refresh-notifs'))
       } catch (e: unknown) {
-        setError(errorMessage(e, 'Errore verifica pagamento.'))
+        const msg = errorMessage(e, 'Errore verifica pagamento.')
+        setError(msg)
+        push({ tone: 'danger', title: 'Pagamento non verificato', description: msg })
       } finally {
         setBusyId(null)
-        nav('/prenotazioni', { replace: true })
+        cleanDepositParams()
       }
     })()
-  }, [accessToken, loc.search, nav, userId])
+  }, [accessToken, loc.pathname, loc.search, nav, push, userId])
 
   useEffect(() => {
     if (!userId) {
@@ -263,7 +293,9 @@ export default function Bookings() {
           <div>
             <div className="tb-kicker">PRENOTAZIONI</div>
             <div className="mt-1 text-base font-semibold text-white">Le tue prenotazioni</div>
-            <div className="mt-1 text-xs text-white/60">Chat, caparra e modifiche orario nello stesso posto.</div>
+            <div className="mt-1 max-w-xl text-xs leading-relaxed text-white/60">
+              Qui vedi stato richiesta e conferma, messaggi con l’attività, caparra e richieste di cambio orario.
+            </div>
           </div>
           {score !== null && (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
@@ -291,7 +323,9 @@ export default function Bookings() {
                   {showReliabilityDetails ? 'Chiudi dettagli' : 'Dettagli'}
                 </button>
               </div>
-              <div className="mt-1 text-xs text-white/60">Livello {tierFromStars(stars)} · Eff: {effective.effectiveScore}/100</div>
+              <div className="mt-1 text-xs text-white/60">
+                Livello {tierFromStars(stars)} · Punteggio effettivo {effective.effectiveScore}/100
+              </div>
               <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full bg-[#4F7CFF]"
@@ -309,7 +343,7 @@ export default function Bookings() {
                       <span className="font-semibold text-white">{stats?.completedCount ?? 0}</span>
                     </div>
                     <div>
-                      <span className="text-white/60">Cancel tardive</span>{' '}
+                      <span className="text-white/60">Cancellazioni tardive</span>{' '}
                       <span className="font-semibold text-white">{stats?.lateCancelCount ?? 0}</span>
                     </div>
                     <div>
@@ -339,6 +373,11 @@ export default function Bookings() {
           )}
         </div>
 
+        {busyId === 'deposit-verify' && (
+          <Alert className="mt-4" tone="info">
+            Verifico il pagamento della caparra…
+          </Alert>
+        )}
         {error && <Alert className="mt-4" tone="danger">{error}</Alert>}
 
         <div className="mt-4 space-y-2">
@@ -859,4 +898,3 @@ export default function Bookings() {
     </AppShell>
   )
 }
-

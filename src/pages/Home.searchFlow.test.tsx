@@ -86,6 +86,18 @@ describe('Home search flow', () => {
           },
         ])
       }
+      if (table === 'external_business_listings_public') {
+        const done = Promise.resolve({ data: [], error: null })
+        const chain = {
+          eq: () => chain,
+          or: () => chain,
+          order: () => chain,
+          range: async () => done,
+        }
+        return {
+          select: () => chain,
+        }
+      }
       if (table === 'reviews') {
         return reviewsBuilder([
           { business_id: 'biz-1', rating: 5 },

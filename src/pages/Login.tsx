@@ -18,7 +18,7 @@ import { supabase } from '@/lib/supabase'
 type Mode = 'login' | 'register' | 'forgot'
 
 export default function Login() {
-  const { session, profile, signIn, signUp, requestPasswordReset, resendSignupEmail, verifySignupWithCode } = useAuth()
+  const { session, profile, profileError, signIn, signUp, requestPasswordReset, resendSignupEmail, verifySignupWithCode } = useAuth()
   const { push } = useToast()
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
@@ -56,7 +56,7 @@ export default function Login() {
     }
   }, [searchParams])
 
-  const next = safeNextPath(searchParams.get('next'))
+  const next = safeNextPath(searchParams.get('next') ?? searchParams.get('returnTo') ?? searchParams.get('redirectTo'))
 
   useEffect(() => {
     setProfileWaitTooLong(false)
@@ -175,9 +175,9 @@ export default function Login() {
       return (
         <FullScreenLoader
           title="Caricamento"
-          subtitle="Sto caricando il profilo…"
+          subtitle={profileError ? `Impossibile caricare il profilo. ${profileError}` : 'Sto caricando il profilo…'}
           action={
-            profileWaitTooLong ? (
+            profileError || profileWaitTooLong ? (
               <div className="mt-6 flex justify-center">
                 <button
                   type="button"
@@ -207,10 +207,10 @@ export default function Login() {
   }
 
   return (
-    <div className="tb-page grid grid-cols-1 gap-6 py-6 md:grid-cols-2 md:py-16">
-      <div className="tb-card tb-card-pad">
+    <div className="tb-page grid grid-cols-1 gap-6 py-6 md:grid-cols-2 md:gap-8 md:py-16">
+      <div className="tb-immersive-panel p-6 md:p-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#4F7CFF]">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7398FF] via-[#4F7CFF] to-[#3559d8] shadow-lg shadow-[#4F7CFF]/35 ring-2 ring-white/15">
             <ShieldCheck className="h-5 w-5 text-white" />
           </div>
           <div>
@@ -220,13 +220,13 @@ export default function Login() {
         </div>
 
         <div className="mt-6 space-y-3 text-sm text-white/75">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="rounded-2xl border border-white/12 bg-white/[0.06] p-4 shadow-inner shadow-black/25 backdrop-blur-sm">
             <div className="font-semibold text-white">Per le attività</div>
             <div className="mt-1 text-white/70">
               Caparra leggera + regole chiare. Niente caos: prenotazioni filtrate e affidabili.
             </div>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="rounded-2xl border border-white/12 bg-white/[0.06] p-4 shadow-inner shadow-black/25 backdrop-blur-sm">
             <div className="font-semibold text-white">Per i clienti</div>
             <div className="mt-1 text-white/70">
               Prenoti più veloce e costruisci reputazione: più affidabilità = meno attrito.
@@ -270,7 +270,7 @@ export default function Login() {
         )}
       </div>
 
-      <div className="tb-card tb-card-pad">
+      <div className="tb-card tb-card-blur tb-card-pad border-white/12 shadow-tbElevated">
         <Tabs
           items={modeTabs}
           value={mode}
@@ -422,17 +422,17 @@ export default function Login() {
           ) : null}
 
           {mode === 'login' && (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="rounded-2xl border border-white/12 bg-white/[0.06] p-4 shadow-inner shadow-black/25 backdrop-blur-sm">
               <div className="tb-kicker">CODICE EMAIL</div>
-              <p className="mt-2 text-xs leading-relaxed text-white/65">
-                Se la mail non mostra il pulsante o il link viene consumato dall&apos;antivirus, usa il codice a 6 cifre
-                insieme all&apos;email dell&apos;account.
+              <p className="mt-2 text-xs leading-relaxed text-white/70">
+                Se la mail non mostra il pulsante o il link viene consumato dall&apos;antivirus, usa il codice ricevuto via
+                email insieme all&apos;email dell&apos;account.
               </p>
               <Input
                 className="mt-3"
                 value={signupOtp}
                 onChange={(e) => setSignupOtp(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                placeholder="Codice (es. 123456)"
+                placeholder="Codice (6-8 cifre)"
                 inputMode="numeric"
                 autoComplete="one-time-code"
               />

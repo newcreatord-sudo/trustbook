@@ -4,11 +4,12 @@
  */
 import { Router, type Request, type Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
-import { timingSafeEqual } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { readEnvAny } from '../lib/env.js'
 
 const router = Router()
 const ADMIN_SIGNUP_ENDPOINT = '/api/auth/admin-signup'
+const ADMIN_GENERATE_LINK_ENDPOINT = '/api/auth/admin-generate-link'
 /** Solo sviluppo: registrazione senza invio email (createUser + email confermato). Mai abilitare in produzione. */
 const DEV_CONFIRM_SIGNUP_ENDPOINT = '/api/auth/dev-signup-confirmed'
 const ADMIN_RATE_WINDOW_MS = Number(process.env.AUTH_ADMIN_SIGNUP_RATE_LIMIT_WINDOW_MS ?? 10 * 60_000)
@@ -86,6 +87,11 @@ function timingSafeTokenEquals(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb)
 }
 
+function generateTempPassword(): string {
+  const base = randomBytes(24).toString('base64url')
+  return `TB_${base}aA1!`
+}
+
 function cleanupRateLimitBucket(now: number, bucket: number[]): number[] {
   const from = now - Math.max(1, ADMIN_RATE_WINDOW_MS)
   return bucket.filter((ts) => ts >= from)
@@ -148,6 +154,24 @@ function normalizeAuthCallbackUrl(fromBody: string | null): string | undefined {
     const u = new URL(raw)
     if (!allowOrigin || u.origin !== allowOrigin) return fallback
     if (!u.pathname.startsWith('/auth/callback')) return fallback
+    u.hash = ''
+    return u.toString()
+  } catch {
+    return fallback
+  }
+}
+
+function normalizeResetPasswordUrl(fromBody: string | null): string | undefined {
+  const appBaseUrl = normalizeBaseUrl(readEnvAny(['APP_BASE_URL', 'VITE_APP_URL']))
+  const allowOrigin = appBaseUrl ? new URL(appBaseUrl).origin : null
+  const fallback = appBaseUrl ? `${appBaseUrl}/reset-password` : undefined
+
+  const raw = (fromBody ?? '').trim()
+  if (!raw) return fallback
+  try {
+    const u = new URL(raw)
+    if (!allowOrigin || u.origin !== allowOrigin) return fallback
+    if (!u.pathname.startsWith('/reset-password')) return fallback
     u.hash = ''
     return u.toString()
   } catch {
@@ -463,6 +487,166 @@ router.post('/admin-signup', async (req: Request, res: Response): Promise<void> 
       error: 'Service is unavailable',
       detail: errText(e),
     })
+  }
+})
+
+router.post('/admin-generate-link', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const ctx = buildAuditContext(req)
+    const email = String(req.body?.email ?? '').trim().toLowerCase()
+    const typeRaw = String(req.body?.type ?? '').trim().toLowerCase()
+    const type = typeRaw === 'signup' || typeRaw === 'recovery' ? typeRaw : null
+    const passwordRaw = typeof req.body?.password === 'string' ? req.body.password : null
+    const redirectToRaw = typeof req.body?.redirectTo === 'string' ? req.body.redirectTo : null
+    const redirectTo =
+      type === 'signup'
+        ? normalizeAuthCallbackUrl(redirectToRaw)
+        : type === 'recovery'
+          ? normalizeResetPasswordUrl(redirectToRaw)
+          : undefined
+
+    const rlKey = `link:${ctx.ip}:${email || ctx.email || 'unknown'}`
+    const rl = consumeAdminSignupAttempt(rlKey)
+    if (!rl.allowed) {
+      res.setHeader('Retry-After', String(rl.retryAfterSec))
+      await logAdminSecurityEvent({
+        req,
+        email: email || ctx.email,
+        role: ctx.role,
+        success: false,
+        reason: 'rate_limited',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(429).json({ success: false, error: 'Too many attempts. Retry later.' })
+      return
+    }
+
+    const adminToken = readEnvAny(['AUTH_ADMIN_SIGNUP_TOKEN', 'ADMIN_SIGNUP_TOKEN'])
+    if (!adminToken) {
+      await logAdminSecurityEvent({
+        req,
+        email: email || ctx.email,
+        role: ctx.role,
+        success: false,
+        reason: 'server_missing_admin_token',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(500).json({ success: false, error: 'Missing AUTH_ADMIN_SIGNUP_TOKEN' })
+      return
+    }
+
+    const provided = adminSignupToken(req)
+    if (!provided) {
+      await logAdminSecurityEvent({
+        req,
+        email: email || ctx.email,
+        role: ctx.role,
+        success: false,
+        reason: 'missing_admin_signup_token_header',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(403).json({ success: false, error: 'Forbidden' })
+      return
+    }
+    if (!timingSafeTokenEquals(provided, adminToken)) {
+      await logAdminSecurityEvent({
+        req,
+        email: email || ctx.email,
+        role: ctx.role,
+        success: false,
+        reason: 'invalid_admin_signup_token',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(403).json({ success: false, error: 'Forbidden' })
+      return
+    }
+
+    if (!email || !email.includes('@') || !type) {
+      await logAdminSecurityEvent({
+        req,
+        email: email || ctx.email,
+        role: ctx.role,
+        success: false,
+        reason: 'invalid_payload',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(400).json({ success: false, error: 'Invalid payload' })
+      return
+    }
+
+    const passwordProvided = String(passwordRaw ?? '').trim()
+    const tempPassword =
+      type === 'signup' && !passwordProvided ? generateTempPassword() : null
+    const signupPassword = type === 'signup' ? (passwordProvided || tempPassword || '') : ''
+    if (type === 'signup' && signupPassword.length < 12) {
+      await logAdminSecurityEvent({
+        req,
+        email,
+        role: ctx.role,
+        success: false,
+        reason: 'invalid_signup_password',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(400).json({ success: false, error: 'Invalid password' })
+      return
+    }
+
+    const supabaseAdmin = buildSupabaseAdminClient()
+    if (!supabaseAdmin) {
+      await logAdminSecurityEvent({
+        req,
+        email,
+        role: ctx.role,
+        success: false,
+        reason: 'server_missing_supabase_service_role',
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(500).json({ success: false, error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' })
+      return
+    }
+
+    const linkParams =
+      type === 'signup'
+        ? { type: 'signup' as const, email, password: signupPassword, options: redirectTo ? { redirectTo } : undefined }
+        : { type: 'recovery' as const, email, options: redirectTo ? { redirectTo } : undefined }
+
+    const { data, error } = await supabaseAdmin.auth.admin.generateLink(linkParams)
+    if (error) {
+      await logAdminSecurityEvent({
+        req,
+        email,
+        role: ctx.role,
+        success: false,
+        reason: `generate_link_failed:${String(error.message || error).slice(0, 180)}`,
+        endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+      })
+      res.status(502).json({ success: false, error: 'Service is unavailable' })
+      return
+    }
+
+    const actionLink = data?.properties?.action_link ?? null
+    const otp = data?.properties?.email_otp ?? null
+
+    await logAdminSecurityEvent({
+      req,
+      email,
+      role: ctx.role,
+      success: true,
+      reason: `generate_link_ok:${type}`,
+      endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+    })
+    res.status(200).json({ success: true, type, actionLink, otp, tempPassword })
+  } catch (e: unknown) {
+    const ctx = buildAuditContext(req)
+    await logAdminSecurityEvent({
+      req,
+      email: ctx.email,
+      role: ctx.role,
+      success: false,
+      reason: `generate_link_unhandled:${errText(e).slice(0, 180)}`,
+      endpoint: ADMIN_GENERATE_LINK_ENDPOINT,
+    })
+    res.status(502).json({ success: false, error: 'Service is unavailable', detail: errText(e) })
   }
 })
 

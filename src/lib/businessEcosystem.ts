@@ -27,6 +27,7 @@ export type BusinessBookingEcosystemRow = {
   ai_floor_plan_read_enabled: boolean
   ai_table_assignment_enabled: boolean
   ai_blocked_slots_enabled: boolean
+  ai_booking_operator_enabled: boolean
   customer_table_choice: CustomerTableChoice
   default_table_assignment_mode: TableAssignmentMode
   ecosystem_notes: string | null
@@ -94,6 +95,7 @@ export function parseEcosystemRow(v: unknown): BusinessBookingEcosystemRow | nul
     ai_floor_plan_read_enabled: asBool(r.ai_floor_plan_read_enabled, false),
     ai_table_assignment_enabled: asBool(r.ai_table_assignment_enabled, false),
     ai_blocked_slots_enabled: asBool(r.ai_blocked_slots_enabled, false),
+    ai_booking_operator_enabled: asBool(r.ai_booking_operator_enabled, false),
     customer_table_choice: asCustomerTableChoice(r.customer_table_choice),
     default_table_assignment_mode: asTableAssignmentMode(r.default_table_assignment_mode),
     ecosystem_notes: typeof r.ecosystem_notes === 'string' ? r.ecosystem_notes : null,
@@ -143,6 +145,7 @@ export async function upsertBusinessBookingEcosystem(
     ai_floor_plan_read_enabled: row.ai_floor_plan_read_enabled,
     ai_table_assignment_enabled: row.ai_table_assignment_enabled,
     ai_blocked_slots_enabled: row.ai_blocked_slots_enabled,
+    ai_booking_operator_enabled: row.ai_booking_operator_enabled,
     customer_table_choice: row.customer_table_choice,
     default_table_assignment_mode: row.default_table_assignment_mode,
     ecosystem_notes: row.ecosystem_notes,

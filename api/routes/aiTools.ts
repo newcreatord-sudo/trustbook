@@ -33,6 +33,16 @@ function routeError(res: Response, e: unknown): void {
     return
   }
 
+  if (msg === 'invalid_time_range' || msg === 'agent_id_required') {
+    res.status(400).json({ success: false, error: msg })
+    return
+  }
+
+  if (msg === 'booking_not_found') {
+    res.status(404).json({ success: false, error: msg })
+    return
+  }
+
   res.status(502).json({ success: false, error: msg })
 }
 
@@ -59,6 +69,36 @@ function asUuid(v: unknown): string | null {
   const s = v.trim()
   if (!s) return null
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s) ? s : null
+}
+
+function parseStatusesQuery(q: unknown): string[] | null {
+  if (typeof q !== 'string' || !q.trim()) return null
+  const parts = q
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return parts.length ? parts : null
+}
+
+function parseLimitQuery(q: unknown, fallback: number): number {
+  if (typeof q !== 'string') return fallback
+  const n = Number(q)
+  return Number.isFinite(n) ? n : fallback
+}
+
+/** Default director agent id; empty string in API falls back to TrustBook default. */
+function directorAgentIdFromQuery(q: unknown): string {
+  if (typeof q !== 'string') return 'trustbook_director_ai'
+  const s = q.trim().slice(0, 80)
+  return s.length > 0 ? s : 'trustbook_director_ai'
+}
+
+function directorAgentIdFromBody(body: unknown): string {
+  if (typeof body !== 'object' || body === null) return 'trustbook_director_ai'
+  const raw = (body as { agentId?: unknown }).agentId
+  if (typeof raw !== 'string') return 'trustbook_director_ai'
+  const s = raw.trim().slice(0, 80)
+  return s.length > 0 ? s : 'trustbook_director_ai'
 }
 
 router.get('/notes', async (req: Request, res: Response): Promise<void> => {
@@ -379,6 +419,355 @@ router.post('/blocked-slots/delete', async (req: Request, res: Response): Promis
     })
     if (error) throw error
     res.status(200).json({ success: true })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.get('/bookings/list', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.query?.businessId)
+    const fromAt = typeof req.query?.from === 'string' ? req.query.from.trim() : ''
+    const toAt = typeof req.query?.to === 'string' ? req.query.to.trim() : ''
+    if (!businessId || !fromAt || !toAt) {
+      res.status(400).json({ success: false, error: 'Missing businessId/from/to' })
+      return
+    }
+    const limit = parseLimitQuery(req.query?.limit, 100)
+    const statuses = parseStatusesQuery(req.query?.statuses)
+    const agentId = directorAgentIdFromQuery(req.query?.agentId)
+
+    const { data, error } = await sb.rpc('ai_list_business_bookings', {
+      p_business_id: businessId,
+      p_from: fromAt,
+      p_to: toAt,
+      p_limit: limit,
+      p_statuses: statuses,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, rows: data ?? [] })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.get('/bookings/detail', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.query?.businessId)
+    const bookingId = asUuid(req.query?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const agentId = directorAgentIdFromQuery(req.query?.agentId)
+
+    const { data, error } = await sb.rpc('ai_get_business_booking', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/approve', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_approve_booking_request', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/reject', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 2000) : ''
+    const reason = reasonRaw.length > 0 ? reasonRaw : null
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_reject_booking_request', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_rejection_reason: reason,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/reschedule-apply', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    const newStart = typeof req.body?.newStartAt === 'string' ? req.body.newStartAt.trim() : ''
+    const newEnd = typeof req.body?.newEndAt === 'string' ? req.body.newEndAt.trim() : ''
+    if (!businessId || !bookingId || !newStart || !newEnd) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId/newStartAt/newEndAt' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_apply_booking_reschedule', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_new_start_at: newStart,
+      p_new_end_at: newEnd,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/propose-reschedule', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    const newStart = typeof req.body?.newStartAt === 'string' ? req.body.newStartAt.trim() : ''
+    const newEnd = typeof req.body?.newEndAt === 'string' ? req.body.newEndAt.trim() : ''
+    const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 2000) : null
+    if (!businessId || !bookingId || !newStart || !newEnd) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId/newStartAt/newEndAt' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_propose_booking_reschedule', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_new_start_at: newStart,
+      p_new_end_at: newEnd,
+      p_message: message,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/accept-time-proposal', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_accept_booking_time_proposal', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/reject-time-proposal', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_reject_booking_time_proposal', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/mark-completed', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_complete_booking', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.post('/bookings/mark-no-show', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.body?.businessId)
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!businessId || !bookingId) {
+      res.status(400).json({ success: false, error: 'Missing businessId/bookingId' })
+      return
+    }
+    const agentId = directorAgentIdFromBody(req.body)
+
+    const { data, error } = await sb.rpc('ai_mark_booking_no_show', {
+      p_business_id: businessId,
+      p_booking_id: bookingId,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, booking: data ?? null })
   } catch (e: unknown) {
     routeError(res, e)
   }

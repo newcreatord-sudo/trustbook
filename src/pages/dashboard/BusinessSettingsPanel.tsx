@@ -1,17 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import type { BusinessRow } from '@/domain/supabase'
 import type { BusinessFeatureGate } from '@/lib/subscriptions'
 import BusinessEcosystemSection from '@/components/BusinessEcosystemSection'
 import { cn } from '@/lib/utils'
 import { errorMessage } from '@/lib/errors'
 import { supabase } from '@/lib/supabase'
+import { sanitizePublicHttpUrl } from '@/lib/publicImageUrl'
+import {
+  DEFAULT_PUBLIC_PROFILE_SETTINGS,
+  PUBLIC_PROFILE_SECTIONS,
+  resolvePublicProfileSettings,
+  type BusinessPublicProfileSettings,
+} from '@/lib/publicProfileSettings'
 import { uploadBusinessMedia } from '@/lib/storage'
+import { isValidBusinessSlug, toBusinessSlug } from '@/lib/slug'
+import { getFloorPlanBundle } from '@/lib/floorPlanApi'
+import { businessPublicPath } from '@/lib/businessPublicPath'
 import Card from '@/shared/ui/Card'
 import Button from '@/shared/ui/Button'
 import Alert from '@/shared/ui/Alert'
 import Input from '@/shared/ui/Input'
 import Select from '@/shared/ui/Select'
+import MediaThumb from '@/shared/ui/MediaThumb'
+import Modal from '@/shared/ui/Modal'
 
 const categories = [
   'barbiere',
@@ -37,11 +50,14 @@ export default function BusinessSettingsPanel(props: {
   featureGate: BusinessFeatureGate
 }) {
   const b = props.business
+  const nav = useNavigate()
+  const loc = useLocation()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
   const [name, setName] = useState(b.name)
+  const [slug, setSlug] = useState(b.slug ?? '')
   const [category, setCategory] = useState(b.category)
   const [description, setDescription] = useState(b.description ?? '')
   const [addressText, setAddressText] = useState(b.address_text ?? '')
@@ -55,6 +71,9 @@ export default function BusinessSettingsPanel(props: {
   const [galleryText, setGalleryText] = useState((b.gallery_urls ?? []).join('\n'))
   const [isPaused, setIsPaused] = useState(Boolean(b.is_paused))
   const [listingVisible, setListingVisible] = useState(b.listing_visible ?? true)
+  const [publicProfile, setPublicProfile] = useState<BusinessPublicProfileSettings>(() =>
+    resolvePublicProfileSettings(b.public_profile_settings),
+  )
   const [lat, setLat] = useState(String(b.lat))
   const [lng, setLng] = useState(String(b.lng))
 
@@ -92,9 +111,17 @@ export default function BusinessSettingsPanel(props: {
   const galleryInputRef = useRef<HTMLInputElement | null>(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingGallery, setUploadingGallery] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+
+  const [completenessLoading, setCompletenessLoading] = useState(false)
+  const [servicesCount, setServicesCount] = useState<number | null>(null)
+  const [openingWindowsCount, setOpeningWindowsCount] = useState<number | null>(null)
+  const [floorPlanCount, setFloorPlanCount] = useState<number | null>(null)
+  const [resourceCount, setResourceCount] = useState<number | null>(null)
 
   useEffect(() => {
     setName(b.name)
+    setSlug(b.slug ?? '')
     setCategory(b.category)
     setDescription(b.description ?? '')
     setAddressText(b.address_text ?? '')
@@ -107,6 +134,8 @@ export default function BusinessSettingsPanel(props: {
     setLogoUrl(b.logo_url ?? '')
     setGalleryText((b.gallery_urls ?? []).join('\n'))
     setIsPaused(Boolean(b.is_paused))
+    setListingVisible(b.listing_visible ?? true)
+    setPublicProfile(resolvePublicProfileSettings(b.public_profile_settings))
     setLat(String(b.lat))
     setLng(String(b.lng))
 
@@ -138,6 +167,113 @@ export default function BusinessSettingsPanel(props: {
     setBlockReliabilityThreshold(String(b.block_reliability_threshold ?? 15))
     setAutoBlockNoShowCount(String(b.auto_block_no_show_count ?? 3))
   }, [b])
+
+  useEffect(() => {
+    let mounted = true
+    setCompletenessLoading(true)
+    ;(async () => {
+      try {
+        const [svcRes, owRes, floorPlans] = await Promise.all([
+          supabase.from('services').select('id').eq('business_id', b.id).eq('is_active', true).limit(200),
+          supabase.from('business_opening_windows').select('id').eq('business_id', b.id).limit(200),
+          getFloorPlanBundle(b.id).catch(() => []),
+        ])
+        if (!mounted) return
+        if (svcRes.error) throw svcRes.error
+        if (owRes.error) throw owRes.error
+        const svcCount = (svcRes.data ?? []).length
+        const owCount = (owRes.data ?? []).length
+        setServicesCount(svcCount)
+        setOpeningWindowsCount(owCount)
+        setFloorPlanCount(floorPlans.length)
+        let resources = 0
+        for (const fp of floorPlans) resources += fp.resource_count ?? 0
+        setResourceCount(resources)
+      } catch {
+        if (!mounted) return
+        setServicesCount(null)
+        setOpeningWindowsCount(null)
+        setFloorPlanCount(null)
+        setResourceCount(null)
+      } finally {
+        if (mounted) setCompletenessLoading(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [b.id])
+
+  useEffect(() => {
+    const params = new URLSearchParams(loc.search)
+    const section = params.get('section')
+    if (section !== 'ecosistema') return
+    const targetId = 'ecosistema-prenotazioni'
+    let tries = 0
+    const tick = () => {
+      tries += 1
+      const el = document.getElementById(targetId)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      if (tries < 20) window.setTimeout(tick, 80)
+    }
+    tick()
+  }, [loc.search])
+
+  const profileCompletion = useMemo(() => {
+    const items = [
+      { key: 'name', label: 'Nome', ok: Boolean(name.trim()) },
+      { key: 'slug', label: 'URL pubblico', ok: Boolean((b.slug ?? slug).trim()) },
+      { key: 'logo', label: 'Logo', ok: Boolean((b.logo_url ?? logoUrl).trim()) },
+      { key: 'gallery', label: 'Foto (min 3)', ok: (b.gallery_urls ?? []).length >= 3 || galleryText.split('\n').map((s) => s.trim()).filter(Boolean).length >= 3 },
+      { key: 'desc', label: 'Descrizione', ok: (description.trim().length >= 80) },
+      { key: 'address', label: 'Indirizzo', ok: Boolean(addressText.trim() && city.trim()) },
+      { key: 'geo', label: 'Coordinate', ok: Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) },
+      { key: 'services', label: 'Servizi attivi', ok: (servicesCount ?? 0) > 0 },
+      { key: 'hours', label: 'Orari', ok: (openingWindowsCount ?? 0) > 0 },
+      { key: 'floorPlan', label: 'Planimetria/risorse', ok: (floorPlanCount ?? 0) > 0 && (resourceCount ?? 0) > 0 },
+    ]
+    const done = items.filter((x) => x.ok).length
+    const total = items.length
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0
+    return { items, done, total, pct }
+  }, [
+    addressText,
+    b.gallery_urls,
+    b.logo_url,
+    b.slug,
+    city,
+    description,
+    floorPlanCount,
+    galleryText,
+    lat,
+    lng,
+    logoUrl,
+    name,
+    openingWindowsCount,
+    resourceCount,
+    servicesCount,
+    slug,
+  ])
+
+  const effectiveSlug = useMemo(() => {
+    const raw = slug.trim() ? toBusinessSlug(slug.trim()) : (b.slug ?? '').trim()
+    return raw || null
+  }, [b.slug, slug])
+
+  const publicUrl = useMemo(() => {
+    const path = businessPublicPath({ id: b.id, slug: effectiveSlug })
+    return `${window.location.origin}${path}`
+  }, [b.id, effectiveSlug])
+
+  const floorPlanInitialTab = useMemo(() => {
+    const params = new URLSearchParams(loc.search)
+    const v = params.get('fpTab')
+    if (v !== 'plans' && v !== 'editor' && v !== 'resources') return null
+    return v
+  }, [loc.search])
 
   const isDirty = useMemo(() => {
     return (
@@ -179,7 +315,10 @@ export default function BusinessSettingsPanel(props: {
       depositRetainedOnNoShow !== (b.deposit_retained_on_no_show ?? true) ||
       depositRetainedOnLateCancel !== (b.deposit_retained_on_late_cancel ?? true) ||
       blockReliabilityThreshold !== String(b.block_reliability_threshold ?? 15) ||
-      autoBlockNoShowCount !== String(b.auto_block_no_show_count ?? 3)
+      autoBlockNoShowCount !== String(b.auto_block_no_show_count ?? 3) ||
+      listingVisible !== (b.listing_visible ?? true) ||
+      (slug.trim() ? toBusinessSlug(slug.trim()) : '') !== (b.slug ?? '').trim() ||
+      JSON.stringify(publicProfile) !== JSON.stringify(resolvePublicProfileSettings(b.public_profile_settings))
     )
   }, [
     addressText,
@@ -221,6 +360,9 @@ export default function BusinessSettingsPanel(props: {
     logoUrl,
     galleryText,
     isPaused,
+    listingVisible,
+    slug,
+    publicProfile,
     website,
   ])
 
@@ -269,57 +411,90 @@ export default function BusinessSettingsPanel(props: {
               }
             }
 
+            const sanitizedLogo = sanitizePublicHttpUrl(logoUrl.trim())
+            if (logoUrl.trim() && !sanitizedLogo) {
+              return setError('URL logo non valido (solo http/https).')
+            }
+
+            const galleryLines = galleryText.split('\n').map((s) => s.trim()).filter(Boolean)
+            const galleryUrlsSanitized: string[] = []
+            for (const line of galleryLines) {
+              const u = sanitizePublicHttpUrl(line)
+              if (!u) {
+                return setError(`URL galleria non valido (solo http/https): ${line}`)
+              }
+              galleryUrlsSanitized.push(u)
+            }
+
+            const slugNormalized = slug.trim() ? toBusinessSlug(slug.trim()) : null
+            if (slugNormalized && !isValidBusinessSlug(slugNormalized)) {
+              return setError('URL pubblico non valido. Usa solo lettere minuscole, numeri e trattini (es: nome-attivita).')
+            }
+
             setSaving(true)
             ;(async () => {
               try {
-                const galleryUrls = galleryText
-                  .split('\n')
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                const { data, error } = await supabase
+                const payload: Record<string, unknown> = {
+                  name: name.trim(),
+                  slug: slugNormalized,
+                  category,
+                  public_profile_settings: publicProfile,
+                  description: description.trim() || null,
+                  address_text: addressText.trim() || null,
+                  postal_code: postalCode.trim() || null,
+                  city: city.trim() || null,
+                  timezone: timezone.trim() || 'Europe/Rome',
+                  phone: phone.trim() || null,
+                  email: email.trim() || null,
+                  website: website.trim() || null,
+                  logo_url: sanitizedLogo ?? null,
+                  gallery_urls: galleryUrlsSanitized,
+                  is_paused: isPaused,
+                  listing_visible: listingVisible,
+                  lat: latNum,
+                  lng: lngNum,
+                  min_gap_min: gapMin,
+                  approval_mode: approvalMode,
+                  required_reliability_min: reqMin,
+                  cancellation_window_min: cancelMin,
+                  booking_lead_time_min: leadMin,
+                  deposit_mode: depositMode,
+                  deposit_value_type: depositValueType,
+                  deposit_fixed_cents: valFixed,
+                  deposit_percent: valPercent,
+                  deposit_min_cents: valMin || null,
+                  deposit_max_cents: valMax || null,
+                  deposit_green_rule: { type: depositGreenType, value: gVal },
+                  deposit_yellow_rule: { type: depositYellowType, value: yVal },
+                  deposit_red_rule: { type: depositRedType, value: rVal },
+                  manual_approval_for_high_risk: manualApprovalForHighRisk,
+                  cancellation_free_until_hours: cfh,
+                  refund_policy: refundPolicy,
+                  deposit_retained_on_no_show: depositRetainedOnNoShow,
+                  deposit_retained_on_late_cancel: depositRetainedOnLateCancel,
+                }
+
+                let res = await supabase
                   .from('businesses')
-                  .update({
-                    name: name.trim(),
-                    category,
-                    description: description.trim() || null,
-                    address_text: addressText.trim() || null,
-                    postal_code: postalCode.trim() || null,
-                    city: city.trim() || null,
-                    timezone: timezone.trim() || 'Europe/Rome',
-                    phone: phone.trim() || null,
-                    email: email.trim() || null,
-                    website: website.trim() || null,
-                    logo_url: logoUrl.trim() || null,
-                    gallery_urls: galleryUrls,
-                    is_paused: isPaused,
-                    listing_visible: listingVisible,
-                    lat: latNum,
-                    lng: lngNum,
-                    min_gap_min: gapMin,
-                    approval_mode: approvalMode,
-                    required_reliability_min: reqMin,
-                    cancellation_window_min: cancelMin,
-                    booking_lead_time_min: leadMin,
-                    deposit_mode: depositMode,
-                    deposit_value_type: depositValueType,
-                    deposit_fixed_cents: valFixed,
-                    deposit_percent: valPercent,
-                    deposit_min_cents: valMin || null,
-                    deposit_max_cents: valMax || null,
-                    deposit_green_rule: { type: depositGreenType, value: gVal },
-                    deposit_yellow_rule: { type: depositYellowType, value: yVal },
-                    deposit_red_rule: { type: depositRedType, value: rVal },
-                    manual_approval_for_high_risk: manualApprovalForHighRisk,
-                    cancellation_free_until_hours: cfh,
-                    refund_policy: refundPolicy,
-                    deposit_retained_on_no_show: depositRetainedOnNoShow,
-                    deposit_retained_on_late_cancel: depositRetainedOnLateCancel,
-                  })
+                  .update(payload)
                   .eq('id', b.id)
                   .select('*')
                   .single()
-                if (error) throw error
-                props.onUpdated(data as BusinessRow)
+                if (res.error && slugNormalized) {
+                  const code = String((res.error as unknown as { code?: unknown }).code ?? '')
+                  const msg = String((res.error as unknown as { message?: unknown }).message ?? '')
+                  if (code === '42703' || msg.toLowerCase().includes('slug')) {
+                    const retryPayload = { ...payload } as Record<string, unknown>
+                    delete retryPayload.slug
+                    res = await supabase.from('businesses').update(retryPayload).eq('id', b.id).select('*').single()
+                    if (res.error) throw res.error
+                    props.onUpdated(res.data as BusinessRow)
+                    setSuccess('Impostazioni salvate. Per URL pubblico applica la migrazione DB (slug).')
+                    return
+                  }
+                }
+                if (res.error) throw res.error
+                props.onUpdated(res.data as BusinessRow)
                 setSuccess('Impostazioni salvate.')
               } catch (e: unknown) {
                 setError(errorMessage(e, 'Errore salvataggio.'))
@@ -343,6 +518,69 @@ export default function BusinessSettingsPanel(props: {
           {success}
         </Alert>
       )}
+
+      <div className="mt-4">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="tb-label">COMPLETAMENTO PROFILO</div>
+              <div className="mt-1 text-sm text-white/70">
+                {completenessLoading ? 'Calcolo…' : `${profileCompletion.pct}% · ${profileCompletion.done}/${profileCompletion.total} completati`}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-semibold text-white/60">{listingVisible ? 'Pubblico' : 'Nascosto'}</div>
+              <div className="mt-2 flex flex-wrap justify-end gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setWizardOpen(true)}>
+                  Guida
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!listingVisible}
+                  onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
+                >
+                  Apri profilo
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await navigator.clipboard.writeText(publicUrl)
+                        setSuccess('Link copiato.')
+                      } catch {
+                        setError('Impossibile copiare il link su questo browser.')
+                      }
+                    })()
+                  }}
+                >
+                  Copia link
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10">
+            <div className="h-full bg-[#4F7CFF]/70" style={{ width: `${profileCompletion.pct}%` }} />
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {profileCompletion.items.map((it) => (
+              <div
+                key={it.key}
+                className={cn(
+                  'rounded-xl border px-3 py-2 text-xs font-semibold',
+                  it.ok ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/5 text-white/70',
+                )}
+              >
+                {it.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="md:col-span-2">
@@ -393,13 +631,74 @@ export default function BusinessSettingsPanel(props: {
           </div>
         </div>
 
-        <div>
+        <div className="md:col-span-2">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="tb-label">Profilo pubblico — cosa mostrare</div>
+            <p className="mt-1 text-sm text-white/65">
+              Controlli granulari sulla pagina pubblica dell’attività (foto, descrizione, planimetria, contatti, recensioni). La planimetria richiede anche
+              l’opzione corrispondente in <span className="text-white/80">Ecosistema prenotazioni</span>.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="text-xs"
+                onClick={() => setPublicProfile({ ...DEFAULT_PUBLIC_PROFILE_SETTINGS })}
+              >
+                Mostra tutte le sezioni (consigliato)
+              </Button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {PUBLIC_PROFILE_SECTIONS.map((row) => (
+                <label key={row.key} className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-black/20 p-3 transition-colors hover:border-white/18">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/25 bg-white/5 text-[#4F7CFF] focus:ring-[#4F7CFF]/40"
+                    checked={publicProfile[row.key]}
+                    onChange={() =>
+                      setPublicProfile((p) => ({
+                        ...p,
+                        [row.key]: !p[row.key],
+                      }))
+                    }
+                  />
+                  <span>
+                    <span className="text-sm font-semibold text-white">{row.label}</span>
+                    <span className="mt-0.5 block text-xs text-white/55">{row.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div id="business-name">
           <label className="tb-label">Nome attività</label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="mt-1"
           />
+        </div>
+
+        <div id="business-public-url" className="md:col-span-2">
+          <label className="tb-label">URL pubblico</label>
+          <Input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            onBlur={() => {
+              if (!slug.trim()) return
+              setSlug(toBusinessSlug(slug.trim()))
+            }}
+            className="mt-1"
+            placeholder="es: barbiere-roma-centro"
+          />
+          <div className="mt-1 text-xs text-white/55">
+            Link:{' '}
+            <span className="font-semibold text-white/70">{`${window.location.origin}/b/${encodeURIComponent(
+              (slug.trim() ? toBusinessSlug(slug.trim()) : b.slug ?? '').trim() || '...',
+            )}`}</span>
+          </div>
         </div>
 
         <div>
@@ -417,7 +716,7 @@ export default function BusinessSettingsPanel(props: {
           </Select>
         </div>
 
-        <div>
+        <div id="business-logo">
           <label className="tb-label">Logo (URL)</label>
           <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button
@@ -469,13 +768,19 @@ export default function BusinessSettingsPanel(props: {
             className="mt-2"
           />
           {logoUrl.trim() && (
-            <div className="mt-2 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-3">
-              <img src={logoUrl.trim()} alt="Logo" className="h-16 w-16 rounded-xl object-cover" />
+            <div className="mt-2 rounded-2xl border border-white/12 bg-white/[0.04] p-3 backdrop-blur-sm ring-1 ring-white/[0.06]">
+              <MediaThumb
+                src={logoUrl.trim()}
+                alt={`Anteprima logo ${b.name}`}
+                fallbackLabel={b.name}
+                zoom
+                containerClassName="inline-block h-16 w-16 align-middle text-xl"
+              />
             </div>
           )}
         </div>
 
-        <div className="md:col-span-2">
+        <div id="business-gallery" className="md:col-span-2">
           <label className="tb-label">Galleria (1 URL per riga)</label>
           <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button
@@ -547,8 +852,14 @@ export default function BusinessSettingsPanel(props: {
                 .filter(Boolean)
                 .slice(0, 8)
                 .map((url) => (
-                  <div key={url} className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                    <img src={url} alt="Foto" className="h-24 w-full object-cover" />
+                  <div key={url} className="relative">
+                    <MediaThumb
+                      src={url}
+                      alt={`Anteprima galleria ${b.name}`}
+                      fallbackLabel={b.name}
+                      zoom
+                      containerClassName="h-24 w-full"
+                    />
                     <button
                       type="button"
                       disabled={saving || uploadingGallery}
@@ -562,7 +873,7 @@ export default function BusinessSettingsPanel(props: {
                         setGalleryText(next)
                       }}
                       className={cn(
-                        'absolute right-2 top-2 inline-flex items-center justify-center rounded-xl border border-white/10 bg-black/40 p-2 text-white/80 transition hover:bg-black/60',
+                        'absolute right-2 top-2 z-10 inline-flex items-center justify-center rounded-xl border border-white/10 bg-black/40 p-2 text-white/80 shadow-lg backdrop-blur-sm transition hover:bg-black/60',
                         (saving || uploadingGallery) && 'cursor-not-allowed opacity-60',
                       )}
                       aria-label="Rimuovi"
@@ -575,7 +886,7 @@ export default function BusinessSettingsPanel(props: {
           )}
         </div>
 
-        <div className="md:col-span-2">
+        <div id="business-description" className="md:col-span-2">
           <label className="tb-label">Descrizione</label>
           <textarea
             value={description}
@@ -585,7 +896,7 @@ export default function BusinessSettingsPanel(props: {
           />
         </div>
 
-        <div>
+        <div id="business-location">
           <label className="tb-label">Indirizzo</label>
           <Input
             value={addressText}
@@ -977,8 +1288,117 @@ export default function BusinessSettingsPanel(props: {
       </div>
     </Card>
     <div id="ecosistema-prenotazioni">
-      <BusinessEcosystemSection business={b} featureGate={props.featureGate} />
+      <BusinessEcosystemSection business={b} featureGate={props.featureGate} floorPlanInitialTab={floorPlanInitialTab} />
     </div>
+    <Modal
+      open={wizardOpen}
+      title="Guida profilo pubblico"
+      description="Completa i dettagli che fanno la differenza: foto, descrizione, servizi, orari, planimetria e URL condivisibile."
+      onClose={() => setWizardOpen(false)}
+      className="max-w-2xl"
+    >
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="text-sm font-semibold text-white">Link pubblico</div>
+          <div className="mt-1 text-xs text-white/70 break-all">{publicUrl}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
+              disabled={!listingVisible}
+            >
+              Apri
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await navigator.clipboard.writeText(publicUrl)
+                    setSuccess('Link copiato.')
+                  } catch {
+                    setError('Impossibile copiare il link su questo browser.')
+                  }
+                })()
+              }}
+            >
+              Copia
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-white">Checklist</div>
+              <div className="mt-1 text-xs text-white/70">{`${profileCompletion.pct}% · ${profileCompletion.done}/${profileCompletion.total}`}</div>
+            </div>
+            <Button type="button" variant="secondary" onClick={() => setWizardOpen(false)}>
+              Chiudi
+            </Button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {profileCompletion.items.map((it) => {
+              const go = () => {
+                setWizardOpen(false)
+                const toId =
+                  it.key === 'name'
+                    ? 'business-name'
+                    : it.key === 'slug'
+                      ? 'business-public-url'
+                      : it.key === 'logo'
+                        ? 'business-logo'
+                        : it.key === 'gallery'
+                          ? 'business-gallery'
+                          : it.key === 'desc'
+                            ? 'business-description'
+                            : it.key === 'address' || it.key === 'geo'
+                              ? 'business-location'
+                              : null
+                if (toId) {
+                  window.setTimeout(() => {
+                    document.getElementById(toId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }, 50)
+                  return
+                }
+                if (it.key === 'services') {
+                  nav('/dashboard-attivita?tab=servizi')
+                  return
+                }
+                if (it.key === 'hours') {
+                  nav('/dashboard-attivita?tab=orari')
+                  return
+                }
+                if (it.key === 'floorPlan') {
+                  nav('/dashboard-attivita?tab=impostazioni&section=ecosistema&fpTab=editor')
+                  return
+                }
+              }
+
+              return (
+                <button
+                  key={it.key}
+                  type="button"
+                  onClick={go}
+                  className={cn(
+                    'flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition',
+                    it.ok ? 'border-emerald-500/20 bg-emerald-500/10 hover:bg-emerald-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10',
+                  )}
+                >
+                  <div className="text-xs font-semibold text-white">{it.label}</div>
+                  <div className={cn('text-[11px] font-semibold', it.ok ? 'text-emerald-100' : 'text-white/60')}>
+                    {it.ok ? 'OK' : 'Completa'}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </Modal>
     </>
   )
 }

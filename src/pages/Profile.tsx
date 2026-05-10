@@ -22,6 +22,7 @@ import { defaultUserPreferences, prefsFromRow, type UserPreferences } from '@/li
 import CustomerSubscriptionPanel from '@/pages/dashboard/CustomerSubscriptionPanel'
 import ReviewReportModal from '@/components/ReviewReportModal'
 import { useToast } from '@/shared/ui/toastContext'
+import { businessPublicPath } from '@/lib/businessPublicPath'
 
 export default function Profile() {
   const { session, profile, refreshProfile } = useAuth()
@@ -559,7 +560,7 @@ export default function Profile() {
                   favorites.map((b) => (
                     <Link
                       key={b.businessId}
-                      to={`/attivita/${encodeURIComponent(b.businessId)}`}
+                      to={businessPublicPath({ id: b.businessId, slug: null })}
                       className="block rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10"
                     >
                       <div className="text-sm font-semibold text-white">{b.name}</div>

@@ -24,6 +24,10 @@ vi.mock('@/components/BookingChat', () => ({
   default: () => <div>chat-mock</div>,
 }))
 
+vi.mock('@/shared/ui/toastContext', () => ({
+  useToast: () => ({ push: vi.fn() }),
+}))
+
 vi.mock('@/providers/authContext', () => ({
   useAuth: () => ({
     session: { user: { id: 'customer-1' }, access_token: 'token-customer' },

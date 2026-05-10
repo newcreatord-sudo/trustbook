@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
 import { MapPinned, Star, ChevronRight, ShieldCheck, Zap, Euro, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import MediaThumb from '@/shared/ui/MediaThumb'
 import type { BusinessRow } from '@/domain/supabase'
 import { computeDepositSummary } from '@/pages/home/homeLogic'
 import { formatMoneyEUR } from '@/utils/time'
+import { businessPublicPath } from '@/lib/businessPublicPath'
+import { resolvePublicProfileSettings } from '@/lib/publicProfileSettings'
 
 export default function BusinessResultCard(props: {
   business: BusinessRow
@@ -19,7 +22,10 @@ export default function BusinessResultCard(props: {
   onToggleFavorite: () => void
 }) {
   const b = props.business
+  const pub = resolvePublicProfileSettings(b.public_profile_settings)
+  const listHero = pub.show_gallery && b.gallery_urls?.[0] ? b.gallery_urls[0] : null
   const depositSummary = computeDepositSummary(b)
+  const businessPath = businessPublicPath(b)
   return (
     <div
       className={cn(
@@ -31,21 +37,19 @@ export default function BusinessResultCard(props: {
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between min-w-0">
         <div className="flex min-w-0 items-start gap-4">
-          <Link to={`/attivita/${encodeURIComponent(b.id)}`} className="shrink-0">
-            {b.logo_url ? (
-              <div className="h-16 w-16 overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-transform duration-300 group-hover:scale-105 group-hover:shadow-lg">
-                <img src={b.logo_url} alt={b.name} className="h-full w-full object-cover" />
-              </div>
-            ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 transition-transform duration-300 group-hover:scale-105 group-hover:shadow-lg">
-                <span className="text-xl font-bold text-white/40">{b.name.charAt(0).toUpperCase()}</span>
-              </div>
-            )}
+          <Link to={businessPath} className="shrink-0">
+            <MediaThumb
+              src={listHero ?? b.logo_url}
+              alt={b.name}
+              fallbackLabel={b.name}
+              containerClassName="h-16 w-16 text-xl"
+              interactiveLift
+            />
           </Link>
           <div className="flex min-w-0 flex-1 flex-col justify-center pt-0.5">
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                to={`/attivita/${encodeURIComponent(b.id)}`}
+                to={businessPath}
                 className="break-words text-lg font-bold tracking-tight text-white hover:text-[#4F7CFF] transition-colors"
               >
                 {b.name}
@@ -144,7 +148,7 @@ export default function BusinessResultCard(props: {
         </div>
         
         <Link
-          to={`/attivita/${encodeURIComponent(b.id)}`}
+          to={businessPath}
           className={cn(
             'inline-flex h-9 flex-1 sm:flex-none items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold transition-all',
             b.is_paused 
@@ -160,4 +164,3 @@ export default function BusinessResultCard(props: {
     </div>
   )
 }
-

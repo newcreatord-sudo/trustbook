@@ -19,15 +19,21 @@ export default function BookingFiltersBar(props: {
 }) {
   const items: Array<{ key: BookingFilterKey; label: string; badge: number }> = [
     { key: 'all', label: 'Tutte', badge: props.counts.all ?? 0 },
-    { key: 'today', label: 'Oggi · calendario', badge: props.counts.today ?? 0 },
-    { key: 'pending', label: 'In attesa', badge: props.counts.pending ?? 0 },
-    { key: 'deposit', label: 'Caparra', badge: props.counts.deposit ?? 0 },
+    { key: 'today', label: 'Solo oggi', badge: props.counts.today ?? 0 },
+    { key: 'pending', label: 'Da confermare', badge: props.counts.pending ?? 0 },
+    { key: 'deposit', label: 'Caparra da pagare', badge: props.counts.deposit ?? 0 },
     { key: 'confirmed', label: 'Confermate', badge: props.counts.confirmed ?? 0 },
-    { key: 'closed', label: 'Chiuse', badge: props.counts.closed ?? 0 },
+    { key: 'closed', label: 'Archiviate', badge: props.counts.closed ?? 0 },
   ]
 
   return (
-    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+    <section className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4" aria-label="Filtri appuntamenti">
+      <div className="mb-3">
+        <div className="tb-label">Filtra la lista</div>
+        <p className="mt-1 text-[11px] leading-snug text-white/50">
+          Conteggi sul campione caricato in pagina. «Solo oggi» non è il tab Calendario: mostra gli appuntamenti di oggi in lista.
+        </p>
+      </div>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="-mx-1 overflow-x-auto px-1">
           <Tabs
@@ -40,10 +46,15 @@ export default function BookingFiltersBar(props: {
 
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 md:items-center">
           <div className="relative">
+            <label htmlFor="booking-search-query" className="sr-only">
+              Cerca per nome o telefono cliente
+            </label>
             <Input
+              id="booking-search-query"
               value={props.query}
               onChange={(e) => props.onQueryChange(e.target.value)}
-              placeholder="Cerca cliente…"
+              placeholder="Nome o telefono cliente…"
+              autoComplete="off"
               className="pr-10"
             />
             {props.query ? (
@@ -58,28 +69,42 @@ export default function BookingFiltersBar(props: {
             ) : null}
           </div>
 
-          <Select value={props.sort} onChange={(e) => props.onSortChange(e.target.value as BookingSortKey)}>
-            <option value="upcoming">Ordina: Prossime</option>
-            <option value="recent">Ordina: Più recenti</option>
-            <option value="pending_first">Ordina: In attesa prima</option>
-          </Select>
+          <div>
+            <label htmlFor="booking-sort-order" className="tb-label sr-only md:not-sr-only md:mb-1 md:block">
+              Ordine elenco
+            </label>
+            <Select
+              id="booking-sort-order"
+              value={props.sort}
+              onChange={(e) => props.onSortChange(e.target.value as BookingSortKey)}
+              aria-label="Ordine elenco appuntamenti"
+            >
+              <option value="upcoming">Dal più vicino al più lontano</option>
+              <option value="recent">Dal più recente</option>
+              <option value="pending_first">Prima le richieste da gestire</option>
+            </Select>
+          </div>
         </div>
       </div>
 
       {(props.value !== 'all' || props.query.trim() || props.sort !== 'upcoming') && (
         <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           <div className="text-xs text-white/70">
-            Stai vedendo:{' '}
+            Vista attiva:{' '}
             <span className="text-white">
               {props.value !== 'all' ? items.find((x) => x.key === props.value)?.label ?? props.value : 'Tutte'}
             </span>
-            {props.query.trim() ? <span className="text-white/60"> · “{props.query.trim()}”</span> : null}
+            {props.query.trim() ? <span className="text-white/60"> · ricerca «{props.query.trim()}»</span> : null}
           </div>
-          <button type="button" onClick={props.onReset} className="text-xs font-semibold text-white/60 hover:text-white">
-            Reset
+          <button
+            type="button"
+            onClick={props.onReset}
+            className="rounded-lg px-2 py-1 text-xs font-semibold text-[#7D9BFF] hover:bg-white/10 hover:text-white"
+          >
+            Ripristina filtri
           </button>
         </div>
       )}
-    </div>
+    </section>
   )
 }

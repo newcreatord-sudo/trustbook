@@ -29,6 +29,7 @@ import {
 export default function BusinessEcosystemSection(props: {
   business: BusinessRow
   featureGate: BusinessFeatureGate
+  floorPlanInitialTab?: 'plans' | 'editor' | 'resources' | null
 }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -48,9 +49,11 @@ export default function BusinessEcosystemSection(props: {
   const [aiFloorPlanReadEnabled, setAiFloorPlanReadEnabled] = useState(false)
   const [aiTableAssignmentEnabled, setAiTableAssignmentEnabled] = useState(false)
   const [aiBlockedSlotsEnabled, setAiBlockedSlotsEnabled] = useState(false)
+  const [aiBookingOperatorEnabled, setAiBookingOperatorEnabled] = useState(false)
   const [customerTableChoice, setCustomerTableChoice] = useState<'off' | 'preferred' | 'required'>('preferred')
   const [defaultTableAssignmentMode, setDefaultTableAssignmentMode] = useState<'auto' | 'customer_choice'>('auto')
   const [resourcePrimaryKind, setResourcePrimaryKind] = useState<'table' | 'station' | 'seat'>('table')
+  const [publicFloorPlanEnabled, setPublicFloorPlanEnabled] = useState(false)
   const [notes, setNotes] = useState('')
   const [playbookId, setPlaybookId] = useState<VerticalArchetypeId>(() =>
     suggestedArchetypeFromCategory(props.business.category),
@@ -82,11 +85,14 @@ export default function BusinessEcosystemSection(props: {
           setAiFloorPlanReadEnabled(Boolean(r.ai_floor_plan_read_enabled))
           setAiTableAssignmentEnabled(Boolean(r.ai_table_assignment_enabled))
           setAiBlockedSlotsEnabled(Boolean(r.ai_blocked_slots_enabled))
+          setAiBookingOperatorEnabled(Boolean(r.ai_booking_operator_enabled))
           setCustomerTableChoice(r.customer_table_choice ?? 'preferred')
           setDefaultTableAssignmentMode(r.default_table_assignment_mode ?? 'auto')
           const p = r.settings?.resource_primary_kind
           const fallback = r.booking_vertical === 'professional_slot' ? 'station' : r.booking_vertical === 'seat_assignment' ? 'seat' : 'table'
           setResourcePrimaryKind(p === 'station' || p === 'seat' || p === 'table' ? p : fallback)
+          const pub = r.settings?.public_floor_plan_enabled
+          setPublicFloorPlanEnabled(pub === true)
           setNotes(r.ecosystem_notes ?? '')
         }
       } catch (e: unknown) {
@@ -152,10 +158,15 @@ export default function BusinessEcosystemSection(props: {
           ai_floor_plan_read_enabled: aiFloorPlanReadEnabled,
           ai_table_assignment_enabled: aiTableAssignmentEnabled,
           ai_blocked_slots_enabled: aiBlockedSlotsEnabled,
+          ai_booking_operator_enabled: aiBookingOperatorEnabled,
           customer_table_choice: customerTableChoice,
           default_table_assignment_mode: defaultTableAssignmentMode,
           ecosystem_notes: notes.trim() || null,
-          settings: { ...(row?.settings ?? {}), resource_primary_kind: resourcePrimaryKind },
+          settings: {
+            ...(row?.settings ?? {}),
+            resource_primary_kind: resourcePrimaryKind,
+            public_floor_plan_enabled: publicFloorPlanEnabled,
+          },
         })
         setOk('Salvato. Le modifiche ai tavoli/slot si integrano gradualmente col motore prenotazioni.')
       } catch (e: unknown) {
@@ -202,7 +213,9 @@ export default function BusinessEcosystemSection(props: {
         <code className="text-xs">auto_apply_whitelisted_ai_suggestions</code>) è consentito solo se disattivi la conferma stretta e definisci una whitelist limitata di tipi azione.
         Batch whitelist e applicazioni manuali dashboard sono tracciate in{' '}
         <code className="text-xs">ai_agent_execution_log</code> (pannello suggerimenti AI); i tool HTTP director usano gli RPC{' '}
-        <code className="text-xs">ai_*</code> con flag dedicati qui sotto.
+        <code className="text-xs">ai_*</code> con flag dedicati qui sotto. Operatore agenda (lista/approva/rifiuta/riprogramma/chiusure): RPC{' '}
+        <code className="text-xs">ai_list_business_bookings</code> ecc. e route{' '}
+        <code className="text-xs">/api/ai-tools/bookings/*</code> quando «AI operatore prenotazioni» è attivo.
       </Alert>
 
       <Alert tone="info" className="mt-4">
@@ -346,6 +359,21 @@ export default function BusinessEcosystemSection(props: {
                   </Select>
                 </div>
               )}
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={publicFloorPlanEnabled}
+                  onChange={(e) => setPublicFloorPlanEnabled(e.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="text-sm font-medium text-white">Planimetria nel profilo pubblico</span>
+                  <span className="mt-0.5 block text-xs text-white/55">
+                    Mostra layout e posizioni sul profilo pubblico (solo lettura). Non mostra disponibilità live né occupazione. In{' '}
+                    <strong className="text-white/70">Impostazioni attività</strong>, sezione «Profilo pubblico», deve restare attiva anche «Sezione planimetria».
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 
@@ -439,6 +467,24 @@ export default function BusinessEcosystemSection(props: {
             </label>
           </div>
 
+          <label className="mt-3 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+            <input
+              type="checkbox"
+              checked={aiBookingOperatorEnabled}
+              onChange={(e) => setAiBookingOperatorEnabled(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              <span className="text-sm font-medium text-white">AI operatore prenotazioni (agenda)</span>
+              <span className="mt-0.5 block text-xs text-white/55">
+                Abilita i tool director su lista prenotazioni, dettaglio, approvazione/rifiuto richieste, riprogrammazione diretta o proposta al cliente,
+                accetta/rifiuta cambio orario, completa e no-show (solo owner). Annullamento con rimborso caparra resta su{' '}
+                <code className="text-[10px]">POST /api/stripe/deposit/cancel-by-business</code>. Con caparra pagata e no-show, dopo la RPC usa anche{' '}
+                <code className="text-[10px]">POST /api/stripe/deposit/forfeit-by-business</code> come in dashboard.
+              </span>
+            </span>
+          </label>
+
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-white/60">Whitelist azioni batch</div>
             <div className="mt-1 text-xs text-white/55">
@@ -477,7 +523,7 @@ export default function BusinessEcosystemSection(props: {
 
           {row && (
             <div className="mt-6 border-t border-white/10 pt-6">
-              <FloorPlanManager businessId={props.business.id} ecosystem={row} />
+              <FloorPlanManager businessId={props.business.id} ecosystem={row} initialTab={props.floorPlanInitialTab ?? null} />
             </div>
           )}
         </div>

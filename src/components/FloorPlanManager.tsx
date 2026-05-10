@@ -15,6 +15,7 @@ import Input from '@/shared/ui/Input'
 import Alert from '@/shared/ui/Alert'
 import Card from '@/shared/ui/Card'
 import Modal from '@/shared/ui/Modal'
+import MediaThumb from '@/shared/ui/MediaThumb'
 import type { BusinessBookingEcosystemRow } from '@/lib/businessEcosystem'
 import { createBusinessPrivateSignedUrl, uploadBusinessPrivateMedia } from '@/lib/storage'
 import { supabase } from '@/lib/supabase'
@@ -22,6 +23,7 @@ import { supabase } from '@/lib/supabase'
 interface Props {
   businessId: string
   ecosystem: BusinessBookingEcosystemRow | null
+  initialTab?: 'plans' | 'editor' | 'resources' | null
 }
 
 type Tab = 'plans' | 'editor' | 'resources'
@@ -41,7 +43,7 @@ function makeNodeId() {
 
 const LAYOUT_SAVE_DEBOUNCE_MS = 450
 
-export default function FloorPlanManager({ businessId, ecosystem }: Props) {
+export default function FloorPlanManager({ businessId, ecosystem, initialTab }: Props) {
   const [bundles, setBundles] = useState<FloorPlanBundle[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,6 +69,12 @@ export default function FloorPlanManager({ businessId, ecosystem }: Props) {
   const [resPhotoBusy, setResPhotoBusy] = useState(false)
   const [resourceAddKind, setResourceAddKind] = useState<ResourceKind>('table')
   const [bgUrl, setBgUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!initialTab) return
+    if (initialTab !== 'plans' && initialTab !== 'editor' && initialTab !== 'resources') return
+    setActiveTab(initialTab)
+  }, [initialTab])
   const [bgBusy, setBgBusy] = useState(false)
   const [occupiedResourceIds, setOccupiedResourceIds] = useState<string[]>([])
   const [occupancyBusy, setOccupancyBusy] = useState(false)
@@ -705,10 +713,15 @@ export default function FloorPlanManager({ businessId, ecosystem }: Props) {
               <div className="mt-1 flex items-center gap-3">
                 {resPhotoBusy ? (
                   <span className="text-xs text-white/40">Caricamento…</span>
-                ) : resPhotoUrl ? (
-                  <img src={resPhotoUrl} alt="" className="h-12 w-12 rounded object-cover border border-white/10" />
                 ) : (
-                  <div className="h-12 w-12 rounded border border-white/10 bg-white/5" />
+                  <MediaThumb
+                    src={resPhotoUrl}
+                    alt={`Foto ${resLabel.trim() || 'risorsa'}`}
+                    fallbackLabel={resLabel.trim() || 'Risorsa'}
+                    zoom={false}
+                    roundedClassName="!rounded-xl"
+                    containerClassName="h-12 w-12 shrink-0 text-xs"
+                  />
                 )}
                 <label className="inline-flex items-center gap-2 text-xs text-cyan-300 cursor-pointer">
                   <input

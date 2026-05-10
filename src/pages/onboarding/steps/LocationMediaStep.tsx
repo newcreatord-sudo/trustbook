@@ -1,5 +1,6 @@
 import { MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import MediaThumb from '@/shared/ui/MediaThumb'
 import type { BusinessOnboardingErrors, BusinessOnboardingForm } from '@/pages/onboarding/BusinessOnboarding'
 
 export default function LocationMediaStep(props: {
@@ -72,8 +73,14 @@ export default function LocationMediaStep(props: {
         />
         {e?.logoUrl && <div className="mt-1 text-xs text-red-100">{e.logoUrl}</div>}
         {v.logoUrl.trim() && (
-          <div className="mt-2 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-3">
-            <img src={v.logoUrl.trim()} alt="Logo" className="h-16 w-16 rounded-xl object-cover" />
+          <div className="mt-2 rounded-2xl border border-white/12 bg-white/[0.04] p-3 backdrop-blur-sm ring-1 ring-white/[0.06]">
+            <MediaThumb
+              src={v.logoUrl.trim()}
+              alt="Anteprima logo attività"
+              fallbackLabel="Attività"
+              zoom
+              containerClassName="inline-block h-16 w-16 align-middle text-xl"
+            />
           </div>
         )}
       </div>
@@ -98,9 +105,7 @@ export default function LocationMediaStep(props: {
               .filter(Boolean)
               .slice(0, 8)
               .map((url) => (
-                <div key={url} className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                  <img src={url} alt="Foto" className="h-24 w-full object-cover" />
-                </div>
+                <MediaThumb key={url} src={url} alt="Anteprima galleria" fallbackLabel="Foto" zoom containerClassName="h-24 w-full" />
               ))}
           </div>
         )}

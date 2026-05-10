@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import AppShell from '@/components/AppShell'
 import { errorMessage } from '@/lib/errors'
-import { createBusinessWithDefaults } from '@/lib/businessSetup'
+import { claimExternalBusinessListing, createBusinessWithDefaults } from '@/lib/businessSetup'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/providers/authContext'
 import OnboardingFooter from '@/pages/onboarding/OnboardingFooter'
@@ -17,6 +17,7 @@ import ServicesStep from '@/pages/onboarding/steps/ServicesStep'
 import ScheduleStep from '@/pages/onboarding/steps/ScheduleStep'
 import StaffStep from '@/pages/onboarding/steps/StaffStep'
 import { businessCategories, onboardingSteps } from '@/pages/onboarding/constants'
+import { sanitizePublicHttpUrl } from '@/lib/publicImageUrl'
 import { isEmailLike, isHttpUrl, isPhoneLike } from '@/utils/validators'
 import Card from '@/shared/ui/Card'
 import Alert from '@/shared/ui/Alert'
@@ -238,6 +239,7 @@ function firstInvalidStepIndex(form: BusinessOnboardingForm): { stepIdx: number;
 
 export default function BusinessOnboarding() {
   const nav = useNavigate()
+  const loc = useLocation()
   const { session, profile, loading: authLoading } = useAuth()
   const userId = session?.user?.id ?? null
   const mountedRef = useRef(true)
@@ -252,6 +254,14 @@ export default function BusinessOnboarding() {
   const [restoredAt, setRestoredAt] = useState<number | null>(null)
   const [draftHydrated, setDraftHydrated] = useState(false)
   const saveSeq = useRef(0)
+
+  const prefillListingSlug = useMemo(() => {
+    const raw = new URLSearchParams(loc.search).get('prefillListing')
+    return raw ? raw.trim() : null
+  }, [loc.search])
+  const [prefillListingId, setPrefillListingId] = useState<string | null>(null)
+  const [prefillNotice, setPrefillNotice] = useState<string | null>(null)
+  const prefillAppliedRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
@@ -358,6 +368,73 @@ export default function BusinessOnboarding() {
     }
   }, [userId])
 
+  useEffect(() => {
+    if (!draftHydrated) return
+    if (!prefillListingSlug) return
+    if (prefillAppliedRef.current) return
+
+    let mounted = true
+    ;(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('external_business_listings_public')
+          .select('id,slug,name,category,address_text,city,postal_code,lat,lng,listing_status')
+          .eq('slug', prefillListingSlug)
+          .maybeSingle()
+        if (error) throw error
+        if (!data || typeof data !== 'object') throw new Error('Scheda non trovata.')
+        const rec = data as Record<string, unknown>
+
+        const listingId = typeof rec.id === 'string' ? rec.id : null
+        const name = typeof rec.name === 'string' ? rec.name.trim() : ''
+        const categoryRaw = typeof rec.category === 'string' ? rec.category.trim().toLowerCase() : ''
+        const categoryNormalized = (businessCategories as readonly string[]).includes(categoryRaw) ? categoryRaw : 'altro'
+        const addressText = typeof rec.address_text === 'string' ? rec.address_text.trim() : ''
+        const city = typeof rec.city === 'string' ? rec.city.trim() : ''
+        const postalCode = typeof rec.postal_code === 'string' ? rec.postal_code.trim() : ''
+        const lat = typeof rec.lat === 'number' && Number.isFinite(rec.lat) ? rec.lat : null
+        const lng = typeof rec.lng === 'number' && Number.isFinite(rec.lng) ? rec.lng : null
+
+        if (!listingId) throw new Error('Scheda non valida.')
+        if (!mounted) return
+
+        setPrefillListingId(listingId)
+        setForm((prev) => {
+          const next: BusinessOnboardingForm = { ...prev }
+          const defaultLat = prev.lat.trim() === '41.9028' && prev.lng.trim() === '12.4964'
+
+          if (name) next.name = name
+          if (categoryNormalized !== 'altro') next.category = categoryNormalized as BusinessOnboardingForm['category']
+          if (addressText) next.addressText = addressText
+          if (city) next.city = city
+          if (postalCode) next.postalCode = postalCode
+          if ((defaultLat || prev.lat.trim() === '' || prev.lng.trim() === '') && lat !== null && lng !== null) {
+            next.lat = String(lat)
+            next.lng = String(lng)
+          }
+          next.phone = ''
+          next.email = ''
+          next.website = ''
+          next.description = ''
+          next.isPaused = true
+          return next
+        })
+        setPrefillNotice(
+          'Scheda importata: nome e indirizzo sono precompilati. Per sicurezza, contatti e descrizione non vengono importati: inseriscili tu e pubblica quando sei pronto.',
+        )
+        setRestoredAt(Date.now())
+        prefillAppliedRef.current = true
+      } catch (e: unknown) {
+        if (!mounted) return
+        setPrefillNotice(errorMessage(e, 'Errore caricamento scheda importata.'))
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [draftHydrated, prefillListingSlug])
+
   const persistDraft = useCallback(async (mode: 'auto' | 'manual') => {
     if (!mountedRef.current) return
     const seq = ++saveSeq.current
@@ -411,8 +488,8 @@ export default function BusinessOnboarding() {
   const galleryUrls = useMemo(() => {
     return form.galleryText
       .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
+      .map((s) => sanitizePublicHttpUrl(s.trim()))
+      .filter((u): u is string => Boolean(u))
   }, [form.galleryText])
 
   const currentErrors = useMemo(() => validateStep(idx, form), [form, idx])
@@ -459,6 +536,9 @@ export default function BusinessOnboarding() {
               setShowErrors(false)
               setSavedAt(null)
               setIdx(0)
+              setPrefillListingId(null)
+              setPrefillNotice(null)
+              prefillAppliedRef.current = false
               setForm({
                 name: '',
                 category: 'parrucchiere',
@@ -531,6 +611,7 @@ export default function BusinessOnboarding() {
         />
 
         {restoredAt && <Alert tone="info">Bozza ripristinata automaticamente.</Alert>}
+        {prefillNotice ? <Alert tone="info">{prefillNotice}</Alert> : null}
 
         <Card padded={false} className="overflow-hidden border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent shadow-2xl">
           <div className="border-b border-white/5 bg-white/[0.02] px-6 py-5 md:px-8">
@@ -598,50 +679,53 @@ export default function BusinessOnboarding() {
                         }
                       }
 
-                      await createBusinessWithDefaults({
-                        ownerUserId: userId,
-                        input: {
-                          name: form.name.trim(),
-                          category: form.category,
-                          description: form.description.trim() || null,
-                          phone: form.phone.trim() || null,
-                          email: form.email.trim() || null,
-                          website: form.website.trim() || null,
-                          addressText: form.addressText.trim() || null,
-                          city: form.city.trim() || null,
-                          postalCode: form.postalCode.trim() || null,
-                          lat: latNum,
-                          lng: lngNum,
-                          logoUrl: form.logoUrl.trim() || null,
-                          galleryUrls,
-                          isPaused: form.isPaused,
-                          approvalMode: form.approvalMode,
-                          requiredReliabilityMin: Math.max(0, Math.min(100, Math.floor(Number(form.requiredReliabilityMin) || 0))),
-                          cancellationWindowMin: Math.max(0, Math.floor(Number(form.cancellationWindowMin) || 0)),
-                          minGapMin: Math.max(0, Math.floor(Number(form.minGapMin) || 0)),
-                          depositMode: form.depositMode,
-                          depositValueType: form.depositValueType,
-                          depositFixedCents: valFixed,
-                          depositPercent: valPercent,
-                          depositMinCents: valMin || null,
-                          depositMaxCents: valMax || null,
-                          depositGreenRule: { type: form.depositGreenType, value: gVal },
-                          depositYellowRule: { type: form.depositYellowType, value: yVal },
-                          depositRedRule: { type: form.depositRedType, value: rVal },
-                          manualApprovalForHighRisk: form.manualApprovalForHighRisk,
-                          cancellationFreeUntilHours: cfh,
-                          refundPolicy: form.refundPolicy,
-                          depositRetainedOnNoShow: form.depositRetainedOnNoShow,
-                          depositRetainedOnLateCancel: form.depositRetainedOnLateCancel,
-                          services: form.services.map((s) => ({
-                            name: s.name.trim(),
-                            durationMin: Math.max(5, Math.floor(Number(s.durationMin) || 45)),
-                            priceCents: s.priceCents ? Math.max(0, Math.floor(Number(s.priceCents) * 100)) : null,
-                          })),
-                          schedule: form.schedule,
-                          staffEmails: form.staffEmails.map((e) => e.trim()).filter((e) => e && isEmailLike(e)),
-                        },
-                      })
+                      const input = {
+                        name: form.name.trim(),
+                        category: form.category,
+                        description: form.description.trim() || null,
+                        phone: form.phone.trim() || null,
+                        email: form.email.trim() || null,
+                        website: form.website.trim() || null,
+                        addressText: form.addressText.trim() || null,
+                        city: form.city.trim() || null,
+                        postalCode: form.postalCode.trim() || null,
+                        lat: latNum,
+                        lng: lngNum,
+                        logoUrl: sanitizePublicHttpUrl(form.logoUrl.trim()) ?? null,
+                        galleryUrls,
+                        isPaused: form.isPaused,
+                        approvalMode: form.approvalMode,
+                        requiredReliabilityMin: Math.max(0, Math.min(100, Math.floor(Number(form.requiredReliabilityMin) || 0))),
+                        cancellationWindowMin: Math.max(0, Math.floor(Number(form.cancellationWindowMin) || 0)),
+                        minGapMin: Math.max(0, Math.floor(Number(form.minGapMin) || 0)),
+                        depositMode: form.depositMode,
+                        depositValueType: form.depositValueType,
+                        depositFixedCents: valFixed,
+                        depositPercent: valPercent,
+                        depositMinCents: valMin || null,
+                        depositMaxCents: valMax || null,
+                        depositGreenRule: { type: form.depositGreenType, value: gVal },
+                        depositYellowRule: { type: form.depositYellowType, value: yVal },
+                        depositRedRule: { type: form.depositRedType, value: rVal },
+                        manualApprovalForHighRisk: form.manualApprovalForHighRisk,
+                        cancellationFreeUntilHours: cfh,
+                        refundPolicy: form.refundPolicy,
+                        depositRetainedOnNoShow: form.depositRetainedOnNoShow,
+                        depositRetainedOnLateCancel: form.depositRetainedOnLateCancel,
+                        services: form.services.map((s) => ({
+                          name: s.name.trim(),
+                          durationMin: Math.max(5, Math.floor(Number(s.durationMin) || 45)),
+                          priceCents: s.priceCents ? Math.max(0, Math.floor(Number(s.priceCents) * 100)) : null,
+                        })),
+                        schedule: form.schedule,
+                        staffEmails: form.staffEmails.map((e) => e.trim()).filter((e) => e && isEmailLike(e)),
+                      }
+
+                      if (prefillListingId) {
+                        await claimExternalBusinessListing({ listingId: prefillListingId, input })
+                      } else {
+                        await createBusinessWithDefaults({ ownerUserId: userId, input })
+                      }
                       try {
                         localStorage.removeItem(draftKeyForUser(userId))
                       } catch {

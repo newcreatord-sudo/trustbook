@@ -39,6 +39,7 @@ import ListItem from '@/shared/ui/ListItem'
 import { useToast } from '@/shared/ui/toastContext'
 import VoiceCommandFab from '@/components/VoiceCommandFab'
 import type { VoiceNavContext } from '@/lib/voiceNavigation'
+import { encodeNext, safeNextPath } from '@/shared/navigation/next'
 
 export default function AppShell(props: { children: React.ReactNode }) {
   const { session, profile, signOut, refreshProfile } = useAuth()
@@ -55,6 +56,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
   const [notifOpen, setNotifOpen] = useState(false)
   const [notifError, setNotifError] = useState<string | null>(null)
   const [notifItems, setNotifItems] = useState<Array<{ label: string; to: string; count: number }>>([])
+  const notifMenuRef = useRef<HTMLDivElement | null>(null)
   const [myScore, setMyScore] = useState<number | null>(null)
   const [myStars, setMyStars] = useState<number | null>(null)
   /** Solo chi ha almeno un’attività come owner può aprire Pagamenti Stripe (API già 403 per lo staff). */
@@ -217,15 +219,20 @@ export default function AppShell(props: { children: React.ReactNode }) {
     const id = window.setInterval(() => {
       void refresh()
     }, 30_000)
+    const onForceRefresh = () => {
+      void refresh()
+    }
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') void refresh()
     }
     window.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('tb:refresh-notifs', onForceRefresh)
 
     return () => {
       mounted = false
       window.clearInterval(id)
       window.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('tb:refresh-notifs', onForceRefresh)
     }
   }, [profile, user])
 
@@ -242,6 +249,24 @@ export default function AppShell(props: { children: React.ReactNode }) {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activityMenuOpen])
+
+  useEffect(() => {
+    if (!notifOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNotifOpen(false)
+    }
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target
+      if (!(target instanceof Node)) return
+      if (notifMenuRef.current && !notifMenuRef.current.contains(target)) setNotifOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [notifOpen])
 
   const tabs: Array<{ to: string; label: string; icon: React.ReactNode; show?: boolean }> = [
     {
@@ -321,7 +346,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0B1220]/80 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-white/[0.08] bg-[#0a111d]/78 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.38)]">
         <div className="mx-auto max-w-6xl px-4 py-3">
           <Navbar>
             <div className="flex items-center gap-2">
@@ -349,11 +374,14 @@ export default function AppShell(props: { children: React.ReactNode }) {
                 />
               ) : null}
 
-              <Link to="/" className="flex items-center gap-2 text-white">
-                <div className="h-8 w-8 rounded-xl bg-[#4F7CFF]" />
+              <Link to="/" className="flex items-center gap-3 text-white transition-opacity hover:opacity-95">
+                <div
+                  className="h-9 w-9 rounded-xl bg-gradient-to-br from-[#7398FF] via-[#4F7CFF] to-[#3559d8] shadow-lg shadow-[#4F7CFF]/35 ring-2 ring-white/[0.12]"
+                  aria-hidden
+                />
                 <div className="leading-tight">
-                  <div className="text-sm font-semibold">TrustBook</div>
-                  <div className="text-xs text-white/70">Prenotazioni anti no-show</div>
+                  <div className="text-[15px] font-semibold tracking-tight">TrustBook</div>
+                  <div className="text-[11px] font-medium text-white/62">Prenotazioni anti no-show</div>
                 </div>
               </Link>
             </div>
@@ -369,8 +397,10 @@ export default function AppShell(props: { children: React.ReactNode }) {
                         key={t.to}
                         to={t.to}
                         className={cn(
-                          'flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition',
-                          active ? 'bg-white/10 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
+                          'flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold tracking-tight transition-colors duration-150',
+                          active
+                            ? 'bg-[#4F7CFF]/18 text-white shadow-sm shadow-black/25 ring-1 ring-[#4F7CFF]/35'
+                            : 'text-white/72 hover:bg-white/[0.07] hover:text-white',
                         )}
                       >
                         {t.icon}
@@ -385,7 +415,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-3">
             {user && (
-              <div className="hidden rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 sm:block">
+              <div className="hidden rounded-xl border border-white/[0.09] bg-white/[0.045] px-3 py-2 text-xs text-white/82 shadow-sm shadow-black/20 backdrop-blur-sm sm:block">
                 <div className="font-medium text-white">{user.email}</div>
                 <div className="text-white/60">
                   Ruolo: {profile?.role ?? '—'}
@@ -438,7 +468,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
             )}
 
             {user && profile?.role === 'cliente' && (
-              <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-white/[0.09] bg-white/[0.045] px-3 py-2 text-xs font-semibold tracking-tight text-white/82 shadow-sm shadow-black/15 backdrop-blur-sm">
                 <span className="font-semibold">{myScore ?? 80}/100</span>
                 <span className="text-white/50">·</span>
                 <Star
@@ -451,100 +481,118 @@ export default function AppShell(props: { children: React.ReactNode }) {
               </div>
             )}
 
-            <div className="relative">
-              <Button
-                type="button"
-                onClick={() => setNotifOpen((v) => !v)}
-                variant="secondary"
-                size="sm"
-                leftIcon={<Bell className="h-4 w-4" />}
-                aria-expanded={notifOpen}
-                aria-haspopup="dialog"
-              >
-                <span className="hidden sm:inline">Notifiche</span>
-                {notifCount > 0 && (
-                  <Badge className="ml-1" tone="info">
-                    {notifCount}
-                  </Badge>
-                )}
-              </Button>
+            {user ? (
+              <>
+                <div className="relative" ref={notifMenuRef}>
+                  <Button
+                    type="button"
+                    onClick={() => setNotifOpen((v) => !v)}
+                    variant="secondary"
+                    size="sm"
+                    leftIcon={<Bell className="h-4 w-4" />}
+                    aria-expanded={notifOpen}
+                    aria-haspopup="dialog"
+                  >
+                    <span className="hidden sm:inline">Notifiche</span>
+                    {notifCount > 0 && (
+                      <Badge className="ml-1" tone="info">
+                        {notifCount}
+                      </Badge>
+                    )}
+                  </Button>
 
-              {notifOpen && (
-                <div className="absolute right-0 top-12 z-30 w-80">
-                  <Card padded={false} className="bg-[#0B1220] p-3 shadow-2xl">
-                  <div className="text-xs font-semibold text-white/60">AZIONI</div>
-                  {notifError && (
-                    <div className="mt-2">
-                      <Alert tone="danger">{notifError}</Alert>
-                    </div>
-                  )}
-                  {notifItems.length === 0 ? (
-                    <div className="mt-2 text-sm text-white/70">Niente di urgente.</div>
-                  ) : (
-                    <div className="mt-2 space-y-2">
-                      {notifItems.map((it) => (
-                        <button
-                          key={`${it.to}_${it.label}`}
-                          type="button"
-                          onClick={() => {
-                            setNotifOpen(false)
-                            nav(it.to)
-                          }}
-                          className="group w-full rounded-2xl text-left"
-                        >
-                          <ListItem
-                            title={it.label}
-                            right={
-                              <Badge tone="neutral" className="px-2">
-                                {it.count}
-                              </Badge>
-                            }
-                            className="group-hover:bg-white/10 group-active:bg-white/10"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                    <div className="mt-3">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setNotifOpen(false)
-                          nav('/notifiche')
-                        }}
-                        className="w-full"
+                  {notifOpen && (
+                    <div className="absolute right-0 top-12 z-30 w-80">
+                      <Card
+                        padded={false}
+                        className="tb-card-blur border-white/[0.1] bg-[#0c1426]/92 p-3 shadow-tbElevated"
                       >
-                        Vedi tutte le notifiche
-                      </Button>
-                    </div>
-                  </Card>
-                </div>
-              )}
-            </div>
+                      <div className="text-xs font-semibold text-white/60">AZIONI</div>
+                      {notifError && (
+                        <div className="mt-2">
+                          <Alert tone="danger">{notifError}</Alert>
+                        </div>
+                      )}
+                      {notifItems.length === 0 ? (
+                        <div className="mt-2 text-sm text-white/70">Niente di urgente.</div>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {notifItems.map((it) => (
+                            <button
+                              key={`${it.to}_${it.label}`}
+                              type="button"
+                              onClick={() => {
+                                setNotifOpen(false)
+                                nav(it.to)
+                              }}
+                              className="group w-full rounded-2xl text-left"
+                            >
+                              <ListItem
+                                title={it.label}
+                                right={
+                                  <Badge tone="neutral" className="px-2">
+                                    {it.count}
+                                  </Badge>
+                                }
+                                className="group-hover:bg-white/10 group-active:bg-white/10"
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
-            <Button
-              type="button"
-              onClick={() => {
-                ;(async () => {
-                  await Promise.race([
-                    signOut(),
-                    new Promise<void>((resolve) => {
-                      window.setTimeout(() => resolve(), 1500)
-                    }),
-                  ])
-                })().finally(() => {
-                  nav('/login', { replace: true })
-                })
-              }}
-              variant="secondary"
-              size="sm"
-              leftIcon={<LogOut className="h-4 w-4" />}
-            >
-              Esci
-            </Button>
+                        <div className="mt-3">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setNotifOpen(false)
+                              nav('/notifiche')
+                            }}
+                            className="w-full"
+                          >
+                            Vedi tutte le notifiche
+                          </Button>
+                        </div>
+                      </Card>
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => {
+                    ;(async () => {
+                      await Promise.race([
+                        signOut(),
+                        new Promise<void>((resolve) => {
+                          window.setTimeout(() => resolve(), 1500)
+                        }),
+                      ])
+                    })().finally(() => {
+                      nav('/login', { replace: true })
+                    })
+                  }}
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<LogOut className="h-4 w-4" />}
+                >
+                  Esci
+                </Button>
+              </>
+            ) : (
+              <Link
+                to={`/start${(() => {
+                  const next = safeNextPath(`${loc.pathname}${loc.search}`)
+                  return next ? `?next=${encodeNext(next)}` : ''
+                })()}`}
+              >
+                <Button type="button" variant="secondary" size="sm" leftIcon={<User className="h-4 w-4" />}>
+                  Accedi
+                </Button>
+              </Link>
+            )}
           </div>
           </Navbar>
         </div>
@@ -561,7 +609,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
           <div className="flex items-start gap-4">
             <aside
               className={cn(
-                'hidden md:block sticky top-24 tb-card tb-scroll bg-white/[0.02] p-3 shadow-inner max-h-[calc(100vh-7.5rem)] overflow-y-scroll overscroll-contain pr-2',
+                'hidden md:block sticky top-24 tb-card tb-card-blur tb-scroll max-h-[calc(100vh-7.5rem)] overflow-y-scroll overscroll-contain border-white/[0.09] p-3 pr-2 shadow-[var(--tb-card-shadow)]',
                 activityMenuCollapsed ? 'w-[76px]' : 'w-64',
               )}
             >
@@ -581,12 +629,12 @@ export default function AppShell(props: { children: React.ReactNode }) {
                       key={it.to}
                       to={it.to}
                       className={cn(
-                        'flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold transition-colors duration-150 ease-out',
-                        active ? 'bg-white/10 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
+                        'flex items-center gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.04] px-3 py-2 text-sm font-semibold tracking-tight shadow-sm shadow-black/15 transition-colors duration-150 ease-out',
+                        active ? 'border-[#4F7CFF]/28 bg-[#4F7CFF]/14 text-white ring-1 ring-[#4F7CFF]/22' : 'text-white/72 hover:border-white/[0.12] hover:bg-white/[0.07] hover:text-white',
                         activityMenuCollapsed ? 'justify-center px-2' : '',
                       )}
                     >
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-white/88 shadow-inner shadow-black/20">
                         {it.icon}
                       </span>
                       {activityMenuCollapsed ? <span className="sr-only">{it.label}</span> : <span className="min-w-0 flex-1 truncate">{it.label}</span>}
@@ -626,10 +674,10 @@ export default function AppShell(props: { children: React.ReactNode }) {
               activityMenuOpen ? 'translate-x-0' : '-translate-x-full',
             )}
           >
-            <div className="tb-card tb-scroll h-full overflow-y-scroll overscroll-contain bg-[#0B1220] p-3 shadow-2xl">
-              <div className="sticky top-0 z-10 bg-[#0B1220]">
-                <div className="flex items-center justify-between gap-2 px-1 pb-3">
-                  <div className="text-xs font-semibold tracking-wide text-white/70">MENU ATTIVITÀ</div>
+            <div className="tb-card tb-card-blur tb-scroll h-full overflow-y-scroll overscroll-contain border-white/[0.1] p-3 shadow-tbElevated">
+              <div className="sticky top-0 z-10 -mx-3 border-b border-white/[0.06] bg-[#0c1426]/88 px-4 py-3 backdrop-blur-md">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#a8b9ff]/95">Menu attività</div>
                   <Button
                     type="button"
                     variant="secondary"
@@ -657,11 +705,11 @@ export default function AppShell(props: { children: React.ReactNode }) {
                       to={it.to}
                       onClick={() => setActivityMenuOpen(false)}
                       className={cn(
-                        'flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold transition-colors duration-150 ease-out',
-                        active ? 'bg-white/10 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
+                        'flex items-center gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.04] px-3 py-2 text-sm font-semibold tracking-tight shadow-sm shadow-black/15 transition-colors duration-150 ease-out',
+                        active ? 'border-[#4F7CFF]/28 bg-[#4F7CFF]/14 text-white ring-1 ring-[#4F7CFF]/22' : 'text-white/72 hover:border-white/[0.12] hover:bg-white/[0.07] hover:text-white',
                       )}
                     >
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/5">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-white/88 shadow-inner shadow-black/20">
                         {it.icon}
                       </span>
                       <span className="min-w-0 flex-1 truncate">{it.label}</span>

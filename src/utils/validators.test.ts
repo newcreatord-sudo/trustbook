@@ -10,6 +10,8 @@ describe('validators', () => {
   it('isHttpUrl validates http(s)', () => {
     expect(isHttpUrl('https://example.com')).toBe(true)
     expect(isHttpUrl('ftp://example.com')).toBe(false)
+    expect(isHttpUrl('javascript:alert(1)')).toBe(false)
+    expect(isHttpUrl('data:image/png;base64,AAAA')).toBe(false)
   })
 
   it('isPhoneLike requires at least 8 digits', () => {

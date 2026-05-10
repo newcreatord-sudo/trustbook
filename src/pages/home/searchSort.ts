@@ -1,8 +1,8 @@
-import type { BusinessRow } from '@/domain/supabase'
+import type { BusinessTextIndex } from '@/pages/home/homeLogic'
 
 export type BusinessSortKey = 'relevance' | 'distance' | 'rating' | 'newest'
 
-export function relevanceScore(b: BusinessRow, q: string): number {
+export function relevanceScore(b: BusinessTextIndex, q: string): number {
   const s = q.trim().toLowerCase()
   if (!s) return 0
   const name = b.name.toLowerCase()
@@ -18,4 +18,3 @@ export function relevanceScore(b: BusinessRow, q: string): number {
   if (addr.includes(s)) score += 1
   return score
 }
-

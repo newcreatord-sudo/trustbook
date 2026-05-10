@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { resolve } from 'node:path'
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import dotenv from 'dotenv'
 import { Client } from 'pg'
 
@@ -8,6 +8,12 @@ const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
 if (envFileArg) {
   const envFile = envFileArg.slice('--env-file='.length).trim()
   if (envFile) dotenv.config({ path: resolve(process.cwd(), envFile), override: true })
+  if (envFile) {
+    const local = `${envFile}.local`
+    if (existsSync(resolve(process.cwd(), local))) {
+      dotenv.config({ path: resolve(process.cwd(), local), override: true })
+    }
+  }
 }
 
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })

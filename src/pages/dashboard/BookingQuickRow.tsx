@@ -82,8 +82,8 @@ export default function BookingQuickRow(props: {
               </Badge>
             )}
             <Badge tone={riskUi.badgeTone}>Affidabilità: {riskUi.labelIt}</Badge>
-            <Badge tone="neutral">
-              Eff {props.effectiveScore}/100 · {props.stars}★
+            <Badge tone="neutral" title={`Punteggio effettivo dopo recensioni e comportamento: ${props.effectiveScore} su 100`}>
+              Punteggio {props.effectiveScore}/100 · {props.stars}★
             </Badge>
             <Badge tone="neutral" className="text-white/60">
               {bookingStatusLabel(props.status)}
@@ -101,7 +101,7 @@ export default function BookingQuickRow(props: {
         </div>
 
         <Button type="button" onClick={props.onOpen} disabled={props.busy} variant="secondary" size="sm">
-          Apri
+          Dettagli
         </Button>
       </div>
 

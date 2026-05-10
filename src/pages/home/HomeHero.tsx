@@ -10,10 +10,10 @@ export default function HomeHero(props: {
   const isCustomer = props.role === 'cliente'
   
   return (
-    <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#0B1220] via-[#0B1220] to-[#4F7CFF]/10 p-8 md:p-12">
-      {/* Abstract background elements */}
-      <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-[#4F7CFF]/10 blur-3xl" />
-      <div className="absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-emerald-500/5 blur-3xl" />
+    <div className="relative overflow-hidden rounded-[2rem] border border-white/15 bg-gradient-to-br from-[#0f172a]/95 via-[#0b1220] to-[#121f3d]/98 p-8 shadow-tbElevated ring-1 ring-white/[0.07] md:p-12">
+      <div className="pointer-events-none absolute -left-24 top-1/2 h-[420px] w-[420px] -translate-y-1/2 rounded-full bg-[#4F7CFF]/18 blur-3xl" />
+      <div className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-indigo-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 right-1/4 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" />
 
       <div className="relative grid grid-cols-1 gap-8 md:grid-cols-12 md:items-center">
         <div className="md:col-span-7 lg:col-span-8">
@@ -59,7 +59,7 @@ export default function HomeHero(props: {
         </div>
 
         <div className="md:col-span-5 lg:col-span-4">
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl shadow-2xl">
+          <div className="rounded-3xl border border-white/15 bg-white/[0.06] p-6 shadow-tbElevated backdrop-blur-xl ring-1 ring-[#4F7CFF]/15">
             <h3 className="text-lg font-semibold text-white">Inizia subito</h3>
             <p className="mt-2 text-sm text-white/60">
               {isCustomer ? 'Gestisci i tuoi appuntamenti o cerca un servizio.' : 'Controlla la tua dashboard o esplora il network.'}

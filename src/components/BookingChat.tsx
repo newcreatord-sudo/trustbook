@@ -17,9 +17,13 @@ export default function BookingChat(props: {
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const sendingLockRef = useRef(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const nearBottomRef = useRef(true)
 
-  const canSend = useMemo(() => Boolean(userId && text.trim()), [text, userId])
+  const canSend = useMemo(() => Boolean(userId && text.trim() && !sending), [sending, text, userId])
 
   const markRead = useCallback(async () => {
     if (!userId) return
@@ -28,6 +32,37 @@ export default function BookingChat(props: {
       .upsert({ booking_id: props.bookingId, user_id: userId, last_read_at: new Date().toISOString() })
     if (error) throw error
   }, [props.bookingId, userId])
+
+  const sendMessage = useCallback(
+    async (body: string) => {
+      if (!userId) return
+      const { data, error } = await supabase
+        .from('booking_messages')
+        .insert({
+          booking_id: props.bookingId,
+          sender_user_id: userId,
+          body,
+        })
+        .select('*')
+        .limit(1)
+        .maybeSingle()
+      if (error) throw error
+      if (data) {
+        const row = data as BookingMessageRow
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === row.id)) return prev
+          return [...prev, row]
+        })
+      }
+      try {
+        await markRead()
+        window.dispatchEvent(new Event('tb:refresh-notifs'))
+      } catch {
+        void 0
+      }
+    },
+    [markRead, props.bookingId, userId],
+  )
 
   useEffect(() => {
     let mounted = true
@@ -47,7 +82,7 @@ export default function BookingChat(props: {
         try {
           await markRead()
         } catch {
-          // non-blocking: chat can be used even if read marker fails
+          void 0
         }
       } catch (e: unknown) {
         if (!mounted) return
@@ -63,8 +98,12 @@ export default function BookingChat(props: {
   }, [markRead, props.bookingId])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
-  }, [messages.length])
+    const last = messages[messages.length - 1]
+    const mine = last ? last.sender_user_id === userId : false
+    if (nearBottomRef.current || mine) {
+      bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    }
+  }, [messages, userId])
 
   useEffect(() => {
     if (!userId) return
@@ -84,10 +123,13 @@ export default function BookingChat(props: {
             if (prev.some((m) => m.id === row.id)) return prev
             return [...prev, row]
           })
-          try {
-            await markRead()
-          } catch {
-            // non-blocking: keep message stream alive even if read marker fails
+          if (nearBottomRef.current) {
+            try {
+              await markRead()
+              window.dispatchEvent(new Event('tb:refresh-notifs'))
+            } catch {
+              void 0
+            }
           }
         },
       )
@@ -111,7 +153,24 @@ export default function BookingChat(props: {
         </div>
       )}
 
-      <div className="mt-3 max-h-64 space-y-2 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-3">
+      <div
+        ref={scrollRef}
+        className="mt-3 max-h-64 space-y-2 overflow-auto rounded-2xl border border-white/10 bg-black/20 p-3"
+        onScroll={() => {
+          const el = scrollRef.current
+          if (!el) return
+          const threshold = 120
+          const isNearBottom = el.scrollHeight - (el.scrollTop + el.clientHeight) < threshold
+          nearBottomRef.current = isNearBottom
+          if (isNearBottom) {
+            void markRead()
+              .then(() => {
+                window.dispatchEvent(new Event('tb:refresh-notifs'))
+              })
+              .catch(() => void 0)
+          }
+        }}
+      >
         {loading ? (
           <div className="text-sm text-white/70">Caricamento…</div>
         ) : messages.length === 0 ? (
@@ -145,8 +204,33 @@ export default function BookingChat(props: {
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            if (!userId) return
+            const body = text.trim()
+            if (!body) return
+            if (sendingLockRef.current) return
+            sendingLockRef.current = true
+            setError(null)
+            setSending(true)
+            setText('')
+            nearBottomRef.current = true
+            ;(async () => {
+              try {
+                await sendMessage(body)
+              } catch (e2: unknown) {
+                setError(errorMessage(e2, 'Errore invio messaggio.'))
+                setText(body)
+              } finally {
+                sendingLockRef.current = false
+                setSending(false)
+              }
+            })()
+          }}
           placeholder="Scrivi un messaggio…"
-          className="w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none focus:border-[#4F7CFF]/60"
+          disabled={!userId || sending}
+          className="w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none focus:border-[#4F7CFF]/60 disabled:opacity-60"
         />
         <button
           type="button"
@@ -155,20 +239,22 @@ export default function BookingChat(props: {
             if (!userId) return
             const body = text.trim()
             if (!body) return
+            if (sendingLockRef.current) return
+            sendingLockRef.current = true
             setError(null)
+            setSending(true)
             setText('')
+            nearBottomRef.current = true
 
             ;(async () => {
               try {
-                const { error } = await supabase.from('booking_messages').insert({
-                  booking_id: props.bookingId,
-                  sender_user_id: userId,
-                  body,
-                })
-                if (error) throw error
+                await sendMessage(body)
               } catch (e: unknown) {
                 setError(errorMessage(e, 'Errore invio messaggio.'))
                 setText(body)
+              } finally {
+                sendingLockRef.current = false
+                setSending(false)
               }
             })()
           }}

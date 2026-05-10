@@ -9,12 +9,12 @@ export default function Badge(props: HTMLAttributes<HTMLSpanElement> & { tone?: 
     <span
       {...rest}
       className={cn(
-        'inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold',
-        tone === 'neutral' && 'border-white/10 bg-white/5 text-white/80',
-        tone === 'info' && 'border-[#4F7CFF]/35 bg-[#4F7CFF]/10 text-white',
-        tone === 'success' && 'border-emerald-500/30 bg-emerald-500/10 text-emerald-50',
-        tone === 'warning' && 'border-amber-500/30 bg-amber-500/10 text-amber-50',
-        tone === 'danger' && 'border-red-500/30 bg-red-500/10 text-red-100',
+        'inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-tight shadow-sm',
+        tone === 'neutral' && 'border-white/[0.1] bg-white/[0.055] text-white/82 shadow-black/20',
+        tone === 'info' && 'border-[#4F7CFF]/40 bg-[#4F7CFF]/12 text-white shadow-[#4F7CFF]/14',
+        tone === 'success' && 'border-emerald-500/35 bg-emerald-500/12 text-emerald-50 shadow-emerald-900/25',
+        tone === 'warning' && 'border-amber-500/35 bg-amber-500/12 text-amber-50 shadow-amber-900/25',
+        tone === 'danger' && 'border-red-500/35 bg-red-500/12 text-red-50 shadow-red-900/25',
         className,
       )}
     />

@@ -10,6 +10,45 @@ import { clearQueryCache } from '@/lib/queryCache'
 import { authCallbackUrl } from '@/lib/authUrls'
 
 const PROFILE_QUERY_TIMEOUT_MS = 8_000
+const PROFILE_FALLBACK_AFTER_MS = 14_000
+
+function formatProfileLoadError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  const normalized = msg.toLowerCase()
+  if (normalized.includes('auth profile query timeout') || normalized.includes('auth profile upsert timeout')) {
+    return 'Il server sta impiegando troppo tempo a rispondere.'
+  }
+  if (
+    normalized.includes('failed to fetch') ||
+    normalized.includes('fetch failed') ||
+    normalized.includes('network') ||
+    normalized.includes('err_aborted') ||
+    normalized.includes('aborted')
+  ) {
+    return 'Problema di rete durante il caricamento del profilo.'
+  }
+  if (normalized.includes('permission denied') || normalized.includes('not authorized') || normalized.includes('jwt')) {
+    return 'Permessi non validi per leggere il profilo.'
+  }
+  if (normalized.includes('relation') && normalized.includes('profiles') && normalized.includes('does not exist')) {
+    return 'Database non inizializzato: manca la tabella profili.'
+  }
+  return 'Impossibile caricare il profilo.'
+}
+
+function isRetryableProfileLoadError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e)
+  const normalized = msg.toLowerCase()
+  return (
+    normalized.includes('auth profile query timeout') ||
+    normalized.includes('auth profile upsert timeout') ||
+    normalized.includes('failed to fetch') ||
+    normalized.includes('fetch failed') ||
+    normalized.includes('network') ||
+    normalized.includes('err_aborted') ||
+    normalized.includes('aborted')
+  )
+}
 
 /** In Vite dev prova prima la registrazione confermata via API locale (se `AUTH_DEV_SIGNUP_CONFIRMED` è attivo). */
 function shouldTryDevSignupFirst(): boolean {
@@ -117,15 +156,43 @@ async function ensureProfileForUser(user: { id: string; user_metadata?: Record<s
   return await fetchProfile(user.id)
 }
 
+function fallbackProfileForUser(user: { id: string; user_metadata?: Record<string, unknown> }): ProfileRow {
+  const md = user.user_metadata ?? {}
+  const roleMeta = md['role']
+  const roleFromMeta = roleMeta === 'cliente' || roleMeta === 'attivita' ? roleMeta : null
+  const role = roleFromMeta ?? getPreferredRole() ?? 'cliente'
+  const firstName = typeof md['first_name'] === 'string' ? md['first_name'] : null
+  const lastName = typeof md['last_name'] === 'string' ? md['last_name'] : null
+  const phone = typeof md['phone'] === 'string' ? md['phone'] : null
+  const now = new Date().toISOString()
+  return {
+    id: user.id,
+    role,
+    first_name: firstName?.trim() || null,
+    last_name: lastName?.trim() || null,
+    phone: phone?.trim() || null,
+    avatar_url: null,
+    city: null,
+    lat: null,
+    lng: null,
+    account_status: 'active',
+    created_at: now,
+    updated_at: now,
+  }
+}
+
 export function AuthProvider(props: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<ProfileRow | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const loadingRef = useRef(true)
   const ensureProfileInFlightRef = useRef(false)
   const ensureProfileTargetRef = useRef<{ id: string; user_metadata: Record<string, unknown> } | null>(null)
   const ensureProfileRetryTimerRef = useRef<number | null>(null)
   const ensureProfileRetryAttemptRef = useRef(0)
+  const ensureProfileStartedAtRef = useRef<number>(0)
 
   useEffect(() => {
     loadingRef.current = loading
@@ -134,14 +201,22 @@ export function AuthProvider(props: { children: React.ReactNode }) {
   const refreshProfile = useCallback(async () => {
     if (!session?.user) {
       setProfile(null)
+      setProfileLoading(false)
+      setProfileError(null)
       return null
     }
     try {
+      setProfileLoading(true)
+      setProfileError(null)
       const p = await fetchProfile(session.user.id)
       setProfile(p)
+      setProfileLoading(false)
+      if (!p) setProfileError('Profilo non trovato.')
       return p
-    } catch {
+    } catch (e: unknown) {
       setProfile(null)
+      setProfileLoading(false)
+      setProfileError(formatProfileLoadError(e))
       return null
     }
   }, [session?.user])
@@ -174,10 +249,14 @@ export function AuthProvider(props: { children: React.ReactNode }) {
       if (ensureProfileInFlightRef.current) return
       ensureProfileInFlightRef.current = true
       try {
+        setProfileLoading(true)
+        setProfileError(null)
         const p = await ensureProfileForUser(target)
         if (!mounted) return
+        if (!p) throw new Error('profile_missing_after_ensure')
         clearEnsureProfileRetry()
         setProfile(p)
+        setProfileLoading(false)
       } catch (e: unknown) {
         ensureProfileInFlightRef.current = false
         if (!mounted) return
@@ -187,8 +266,23 @@ export function AuthProvider(props: { children: React.ReactNode }) {
           scheduleEnsureProfileRetry(delay)
           return
         }
+        if (isRetryableProfileLoadError(e) && ensureProfileRetryAttemptRef.current < 3) {
+          ensureProfileRetryAttemptRef.current += 1
+          const elapsed = ensureProfileStartedAtRef.current ? Date.now() - ensureProfileStartedAtRef.current : 0
+          if (elapsed >= PROFILE_FALLBACK_AFTER_MS) {
+            clearEnsureProfileRetry()
+            setProfile(fallbackProfileForUser(target))
+            setProfileLoading(false)
+            return
+          }
+          const delay = Math.min(2_500, 250 * 2 ** Math.min(3, ensureProfileRetryAttemptRef.current))
+          scheduleEnsureProfileRetry(delay)
+          return
+        }
         clearEnsureProfileRetry()
         setProfile(null)
+        setProfileLoading(false)
+        setProfileError(formatProfileLoadError(e))
         return
       } finally {
         ensureProfileInFlightRef.current = false
@@ -200,6 +294,10 @@ export function AuthProvider(props: { children: React.ReactNode }) {
         id: user.id,
         user_metadata: (user.user_metadata as Record<string, unknown>) ?? {},
       }
+      setProfileLoading(true)
+      setProfileError(null)
+      ensureProfileRetryAttemptRef.current = 0
+      ensureProfileStartedAtRef.current = Date.now()
       void runEnsureProfile()
     }
 
@@ -231,6 +329,8 @@ export function AuthProvider(props: { children: React.ReactNode }) {
             ensureProfileTargetRef.current = null
             clearEnsureProfileRetry()
             setProfile(null)
+            setProfileLoading(false)
+            setProfileError(null)
           }
           setLoading(false)
         })
@@ -254,6 +354,8 @@ export function AuthProvider(props: { children: React.ReactNode }) {
         ensureProfileTargetRef.current = null
         clearEnsureProfileRetry()
         setProfile(null)
+        setProfileLoading(false)
+        setProfileError(null)
       }
 
       if (loadingRef.current) setLoading(false)
@@ -271,6 +373,8 @@ export function AuthProvider(props: { children: React.ReactNode }) {
     return {
       session,
       profile,
+      profileLoading,
+      profileError,
       loading,
       signIn: async ({ email, password }) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -283,7 +387,7 @@ export function AuthProvider(props: { children: React.ReactNode }) {
           if (normalized.includes('email not confirmed') || normalized.includes('email non confermata')) {
             return {
               ok: false as const,
-              error: 'Account non confermato. Controlla la mail di conferma oppure usa il codice a 6 cifre su questa pagina.',
+              error: 'Account non confermato. Controlla la mail di conferma oppure usa il codice ricevuto via email su questa pagina.',
             }
           }
           if (
@@ -421,7 +525,7 @@ export function AuthProvider(props: { children: React.ReactNode }) {
       verifySignupWithCode: async ({ email, token }) => {
         const clean = token.replace(/\s/g, '')
         if (clean.length < 6) {
-          return { ok: false as const, error: 'Inserisci il codice a 6 cifre ricevuto via email.' }
+          return { ok: false as const, error: 'Inserisci il codice ricevuto via email.' }
         }
         const { error } = await supabase.auth.verifyOtp({
           email: email.trim().toLowerCase(),
@@ -467,7 +571,7 @@ export function AuthProvider(props: { children: React.ReactNode }) {
       },
       refreshProfile,
     }
-  }, [loading, profile, refreshProfile, session])
+  }, [loading, profile, profileError, profileLoading, refreshProfile, session])
 
   return <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>
 }

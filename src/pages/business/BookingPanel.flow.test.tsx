@@ -167,7 +167,7 @@ describe('BookingPanel flow', () => {
     const slotButton = slotTimeButton()
     if (!slotButton) throw new Error('Missing availability slot button')
     fireEvent.click(slotButton)
-    fireEvent.click(screen.getByRole('button', { name: /Conferma e invia richiesta/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Conferma/i }))
 
     await waitFor(() => {
       expect(onCreateBooking).toHaveBeenCalled()
@@ -275,7 +275,7 @@ describe('BookingPanel flow', () => {
     if (!slotButton) throw new Error('Missing availability slot button')
     fireEvent.click(slotButton)
 
-    const confirmBtn = screen.getByRole('button', { name: /Conferma e invia richiesta/i })
+    const confirmBtn = screen.getByRole('button', { name: /Conferma/i })
     fireEvent.click(confirmBtn)
     fireEvent.click(confirmBtn)
 
@@ -390,7 +390,7 @@ describe('BookingPanel flow', () => {
     const slotButton = slotTimeButton()
     if (!slotButton) throw new Error('Missing availability slot button')
     fireEvent.click(slotButton)
-    fireEvent.click(screen.getByRole('button', { name: /Conferma e invia richiesta/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Conferma/i }))
 
     await waitFor(() => {
       expect(onCreateBooking).toHaveBeenCalled()
@@ -511,7 +511,7 @@ describe('BookingPanel flow', () => {
     })
     fireEvent.change(tableSelect, { target: { value: 'res-table-1' } })
 
-    fireEvent.click(screen.getByRole('button', { name: /Conferma e invia richiesta/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Conferma/i }))
 
     await waitFor(() => {
       expect(onCreateBooking).toHaveBeenCalled()
@@ -627,7 +627,7 @@ describe('BookingPanel flow', () => {
       expect(screen.getByRole('option', { name: /Automatico \(consigliato\)/i })).toBeTruthy()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Conferma e invia richiesta/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Conferma/i }))
 
     await waitFor(() => {
       expect(onCreateBooking).toHaveBeenCalled()

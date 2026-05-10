@@ -13,6 +13,7 @@ import Alert from '@/shared/ui/Alert'
 import EmptyState from '@/shared/ui/EmptyState'
 import Skeleton from '@/shared/ui/Skeleton'
 import CustomerSubscriptionPanel from '@/pages/dashboard/CustomerSubscriptionPanel'
+import { businessPublicPath } from '@/lib/businessPublicPath'
 
 type BookingLite = {
   id: string
@@ -305,7 +306,7 @@ export default function CustomerDashboard() {
                   favorites.map((f) => (
                     <Link
                       key={f.businessId}
-                      to={`/attivita/${encodeURIComponent(f.businessId)}`}
+                      to={businessPublicPath({ id: f.businessId, slug: null })}
                       className="group flex items-center justify-between rounded-2xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:border-[#4F7CFF]/30 hover:bg-[#4F7CFF]/5"
                     >
                       <div>

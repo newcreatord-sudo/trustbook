@@ -78,7 +78,7 @@ export default function Modal(props: {
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/65 backdrop-blur-md" onClick={onClose} aria-hidden />
       <div
         ref={panelRef}
         tabIndex={-1}
@@ -86,17 +86,20 @@ export default function Modal(props: {
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className={cn('relative w-full max-w-lg rounded-3xl border border-white/10 bg-[#0B1220] p-5 shadow-2xl outline-none', className)}
+        className={cn(
+          'relative w-full max-w-lg rounded-3xl border border-white/[0.1] bg-[#0d1526]/95 p-5 shadow-tbElevated outline-none ring-1 ring-white/[0.06] backdrop-blur-xl',
+          className,
+        )}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div id={titleId} className="text-sm font-semibold text-white">{title}</div>
-            {description ? <div id={descId} className="mt-1 text-sm text-white/70">{description}</div> : null}
+            <div id={titleId} className="text-base font-semibold tracking-tight text-white">{title}</div>
+            {description ? <div id={descId} className="mt-1 text-sm leading-relaxed text-white/72">{description}</div> : null}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+            className="rounded-xl border border-white/[0.1] bg-white/[0.06] p-2 text-white/72 transition hover:bg-white/[0.1] hover:text-white"
             aria-label="Chiudi"
           >
             <X className="h-4 w-4" />

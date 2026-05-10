@@ -35,11 +35,11 @@ export default function ToastProvider(props: { children: React.ReactNode }) {
           <div
             key={t.id}
             className={cn(
-              'rounded-2xl border bg-[#0B1220]/95 p-4 shadow-2xl backdrop-blur',
-              t.tone === 'info' && 'border-white/10',
-              t.tone === 'success' && 'border-emerald-500/25',
-              t.tone === 'warning' && 'border-amber-500/25',
-              t.tone === 'danger' && 'border-red-500/25',
+              'rounded-2xl border bg-[#0d1526]/95 p-4 shadow-tbElevated backdrop-blur-xl ring-1 ring-white/[0.06]',
+              t.tone === 'info' && 'border-white/[0.1]',
+              t.tone === 'success' && 'border-emerald-500/30',
+              t.tone === 'warning' && 'border-amber-500/30',
+              t.tone === 'danger' && 'border-red-500/30',
             )}
           >
             <div className="flex items-start justify-between gap-3">
@@ -55,13 +55,13 @@ export default function ToastProvider(props: { children: React.ReactNode }) {
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-white">{t.title}</div>
-                  {t.description ? <div className="mt-1 text-sm text-white/70">{t.description}</div> : null}
+                  {t.description ? <div className="mt-1 text-sm leading-relaxed text-white/72">{t.description}</div> : null}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setItems((prev) => prev.filter((x) => x.id !== t.id))}
-                className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                className="rounded-xl border border-white/[0.1] bg-white/[0.06] p-2 text-white/72 transition hover:bg-white/[0.1] hover:text-white"
                 aria-label="Chiudi"
               >
                 <X className="h-4 w-4" />

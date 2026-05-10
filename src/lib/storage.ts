@@ -3,6 +3,29 @@ import { supabase } from '@/lib/supabase'
 export type UploadedMedia = { path: string; publicUrl: string }
 export type UploadedPrivateMedia = { bucket: 'business-private'; path: string }
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const MAX_LOGO_BYTES = 5 * 1024 * 1024
+const MAX_GALLERY_BYTES = 12 * 1024 * 1024
+
+/** Validazione client prima dell’upload Supabase (MIME + peso). */
+export function assertBusinessImageUploadAllowed(file: File, kind: 'logo' | 'gallery'): void {
+  const max = kind === 'logo' ? MAX_LOGO_BYTES : MAX_GALLERY_BYTES
+  if (file.size > max) {
+    throw new Error(kind === 'logo' ? 'Logo troppo grande (massimo 5 MB).' : 'Immagine troppo grande (massimo 12 MB).')
+  }
+  const mime = (file.type || '').toLowerCase()
+  if (mime) {
+    if (!ALLOWED_IMAGE_TYPES.has(mime)) {
+      throw new Error('Formato non supportato. Usa JPEG, PNG, WebP o GIF.')
+    }
+  } else {
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    if (!['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+      throw new Error('Formato immagine non riconosciuto.')
+    }
+  }
+}
+
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop()?.toLowerCase() ?? ''
   if (fromName && fromName.length <= 5) return fromName
@@ -16,6 +39,7 @@ export async function uploadBusinessMedia(params: {
   file: File
   kind: 'logo' | 'gallery'
 }): Promise<UploadedMedia> {
+  assertBusinessImageUploadAllowed(params.file, params.kind)
   const ext = extFromFile(params.file)
   const stamp = Date.now()
   const key = params.kind === 'logo' ? `logo-${stamp}.${ext}` : `gallery-${stamp}.${ext}`

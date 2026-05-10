@@ -17,6 +17,7 @@ import Button from '@/shared/ui/Button'
 import Alert from '@/shared/ui/Alert'
 import Skeleton from '@/shared/ui/Skeleton'
 import Input from '@/shared/ui/Input'
+import MediaThumb from '@/shared/ui/MediaThumb'
 
 /** Policy da `business_booking_ecosystem` per verticalità sala/posti (solo cliente autenticato). */
 export type BookingTableSelectionPolicy = {
@@ -73,6 +74,7 @@ export default function BookingPanel(props: {
   const [availabilitySlots, setAvailabilitySlots] = useState<Array<{ startAt: string; endAt: string }>>([])
   const [slotsFetchLoading, setSlotsFetchLoading] = useState(false)
   const [slotsFetchError, setSlotsFetchError] = useState<string | null>(null)
+  const [showAllSlots, setShowAllSlots] = useState(false)
 
   const [partySize, setPartySize] = useState(2)
   const [tableOptions, setTableOptions] = useState<AvailableResource[]>([])
@@ -122,6 +124,8 @@ export default function BookingPanel(props: {
         slotKey?: string | null
         step?: number
         staffId?: string | null
+        partySize?: number
+        tableResourceId?: string | null
       }
       if (parsed.serviceId && props.services.some((s) => s.id === parsed.serviceId)) {
         setServiceId(parsed.serviceId)
@@ -137,6 +141,12 @@ export default function BookingPanel(props: {
       }
       if (typeof parsed.staffId === 'string' && staffOptions.some((s) => s.id === parsed.staffId)) {
         setSelectedStaffId(parsed.staffId)
+      }
+      if (typeof parsed.partySize === 'number' && Number.isFinite(parsed.partySize)) {
+        setPartySize(Math.min(50, Math.max(1, Math.floor(parsed.partySize))))
+      }
+      if (typeof parsed.tableResourceId === 'string' || parsed.tableResourceId === null) {
+        setSelectedTableResourceId(parsed.tableResourceId ?? null)
       }
     } catch {
       // Ignore invalid draft payload.
@@ -168,12 +178,18 @@ export default function BookingPanel(props: {
           slotKey,
           step: activeStep,
           staffId: selectedStaffId,
+          partySize,
+          tableResourceId: selectedTableResourceId,
         }),
       )
     } catch {
       // Ignore quota/storage errors.
     }
-  }, [dayIdx, draftStorageKey, serviceId, slotKey, activeStep, selectedStaffId])
+  }, [dayIdx, draftStorageKey, serviceId, slotKey, activeStep, selectedStaffId, partySize, selectedTableResourceId])
+
+  useEffect(() => {
+    setShowAllSlots(false)
+  }, [dayIdx, selectedStaffId, serviceId])
 
   const selectedStaffMember = useMemo(
     () => (selectedStaffId ? staffOptions.find((s) => s.id === selectedStaffId) ?? null : null),
@@ -259,6 +275,12 @@ export default function BookingPanel(props: {
     [depositInfo, props.customerNoDepositBypass],
   )
 
+  const primaryCtaLabel = useMemo(() => {
+    if (depositPreview.requiresManualApproval) return 'Invia richiesta (approvazione necessaria)'
+    if (depositPreview.depositRequired) return 'Continua al pagamento caparra'
+    return 'Conferma prenotazione'
+  }, [depositPreview.depositRequired, depositPreview.requiresManualApproval])
+
   const policyBlockReason = useMemo(() => {
     if (effectiveScore === null) return null
     const blockScore = typeof props.business.block_reliability_threshold === 'number' ? props.business.block_reliability_threshold : 15
@@ -271,6 +293,15 @@ export default function BookingPanel(props: {
   const selectedSlot = slotKey
     ? availabilitySlots.find((s) => `${s.startAt}_${s.endAt}` === slotKey) ?? null
     : null
+
+  const visibleSlots = useMemo(
+    () => (showAllSlots ? availabilitySlots : availabilitySlots.slice(0, 18)),
+    [availabilitySlots, showAllSlots],
+  )
+  const hiddenSlotsCount = useMemo(
+    () => (availabilitySlots.length > 18 ? availabilitySlots.length - 18 : 0),
+    [availabilitySlots.length],
+  )
 
   useEffect(() => {
     setSelectedTableResourceId(null)
@@ -481,6 +512,13 @@ export default function BookingPanel(props: {
     return (
       <div className="sticky top-[calc(env(safe-area-inset-top,0px)+72px)] md:top-[88px] flex flex-col overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent p-4 shadow-2xl sm:p-6 md:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <div className="flex flex-col items-center text-center gap-4 py-4">
+          <MediaThumb
+            src={props.business.logo_url}
+            alt={props.business.name}
+            fallbackLabel={props.business.name}
+            roundedClassName="!rounded-xl"
+            containerClassName="mb-1 h-12 w-12 shrink-0 text-xs"
+          />
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 mb-2">
             <CheckCircle2 className="h-8 w-8" />
           </div>
@@ -489,7 +527,7 @@ export default function BookingPanel(props: {
             <p className="font-semibold text-white">{createdService?.name ?? 'Servizio'}</p>
             <p>{formatDateTime(created.start_at)}</p>
             {confirmedStaff ? (
-              <p className="flex items-center justify-center gap-2 text-white/65">
+              <p className="flex items-center justify-center gap-2 text-white/70">
                 <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: confirmedStaff.color }} />
                 Operatore: <span className="font-medium text-white/90">{confirmedStaff.display_name}</span>
               </p>
@@ -564,15 +602,35 @@ export default function BookingPanel(props: {
   return (
     <div className="sticky top-[calc(env(safe-area-inset-top,0px)+72px)] md:top-[88px] flex flex-col overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-b from-white/[0.04] to-transparent p-4 shadow-2xl sm:p-6 md:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       
-      {/* Header & Trust Score */}
+      {/* Header attività + Trust Score */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
-        <h2 className="text-xl font-bold tracking-tight text-white">Prenota ora</h2>
+        <div className="flex min-w-0 items-start gap-3">
+          <MediaThumb
+            src={props.business.logo_url}
+            alt={`Logo ${props.business.name}`}
+            fallbackLabel={props.business.name}
+            roundedClassName="!rounded-xl"
+            containerClassName="mt-0.5 h-12 w-12 shrink-0 text-base"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold tracking-tight text-white/88">{props.business.name}</p>
+            <h2 className="mt-1 text-xl font-bold tracking-tight text-white">Prenota ora</h2>
+            <p className="mt-1 max-w-md text-xs leading-relaxed text-white/55">
+              Tre passaggi: servizio, giorno e ora, conferma. Puoi tornare indietro con «Modifica» su ogni passo.
+            </p>
+          </div>
+        </div>
         {props.customerScore !== null && (
           <div className="inline-flex items-center gap-3 rounded-2xl border border-[#7D9BFF]/20 bg-[#7D9BFF]/5 px-3 py-2 backdrop-blur-sm shadow-sm">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-[#7D9BFF]" />
+              <ShieldCheck className="h-4 w-4 text-[#7D9BFF]" aria-hidden />
               <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/50">Trust Score</span>
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider text-white/50"
+                  title="Punteggio di affidabilità sulle prenotazioni passate (0–100)."
+                >
+                  Punteggio affidabilità
+                </span>
                 <span className="text-sm font-bold leading-none text-white">{props.customerEffectiveScore ?? props.customerScore}<span className="text-[10px] font-medium text-white/40">/100</span></span>
               </div>
             </div>
@@ -789,7 +847,7 @@ export default function BookingPanel(props: {
                 {slotsFetchLoading ? (
                   Array.from({ length: 9 }).map((_, i) => <Skeleton key={i} className="h-[48px] rounded-xl" />)
                 ) : (
-                  availabilitySlots.slice(0, 18).map((s) => {
+                  visibleSlots.map((s) => {
                   const key = `${s.startAt}_${s.endAt}`
                   const active = key === slotKey
                   const label = new Intl.DateTimeFormat('it-IT', {
@@ -822,6 +880,14 @@ export default function BookingPanel(props: {
                 })
                 )}
               </div>
+
+              {!slotsFetchLoading && hiddenSlotsCount > 0 && (
+                <div className="mt-3">
+                  <Button type="button" variant="secondary" className="w-full" onClick={() => setShowAllSlots((v) => !v)}>
+                    {showAllSlots ? 'Mostra meno' : `Mostra altri ${hiddenSlotsCount} orari`}
+                  </Button>
+                </div>
+              )}
 
               {!slotsFetchLoading && availabilitySlots.length === 0 && (
                 <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
@@ -1078,12 +1144,32 @@ export default function BookingPanel(props: {
                   }
                   onClick={handleConfirm}
                 >
-                  {submitting ? 'Invio in corso…' : 'Conferma e invia richiesta'}
+                  {submitting ? 'Invio in corso…' : primaryCtaLabel}
                 </Button>
               ) : (
                 <Link
-                  to={`/login?returnTo=${encodeURIComponent(location.pathname)}`}
+                  to={`/login?mode=login&role=cliente&returnTo=${encodeURIComponent(
+                    `${location.pathname}${location.search}${location.hash}`,
+                  )}`}
                   className="flex w-full items-center justify-center rounded-2xl bg-[#4F7CFF] px-4 py-4 text-base font-bold text-white shadow-lg shadow-[#4F7CFF]/20 transition-all active:scale-[0.99] md:hover:scale-[1.02] md:hover:shadow-[#4F7CFF]/30 hover:bg-[#4F7CFF]/90 min-h-[52px]"
+                  onClick={() => {
+                    try {
+                      window.sessionStorage.setItem(
+                        draftStorageKey,
+                        JSON.stringify({
+                          serviceId,
+                          dayIdx,
+                          slotKey,
+                          step: activeStep,
+                          staffId: selectedStaffId,
+                          partySize,
+                          tableResourceId: selectedTableResourceId,
+                        }),
+                      )
+                    } catch {
+                      // Ignore quota/storage errors.
+                    }
+                  }}
                 >
                   Accedi per continuare
                 </Link>

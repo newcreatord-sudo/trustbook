@@ -3,7 +3,12 @@ import { formatMoneyEUR } from '@/utils/time'
 
 export type ReviewLite = { business_id: string; rating: number }
 
-export function matchBusiness(b: BusinessRow, q: string): boolean {
+export type BusinessTextIndex = Pick<
+  BusinessRow,
+  'name' | 'description' | 'address_text' | 'postal_code' | 'city' | 'category'
+>
+
+export function matchBusiness(b: BusinessTextIndex, q: string): boolean {
   const s = q.trim().toLowerCase()
   if (!s) return true
   return (

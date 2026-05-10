@@ -13,7 +13,7 @@ export type BusinessOnboardingInput = {
   website: string
   lat: number
   lng: number
-  logoUrl: string
+  logoUrl: string | null
   galleryUrls: string[]
   isPaused: boolean
   minGapMin: number
@@ -72,6 +72,46 @@ export async function createBusinessWithDefaults(params: {
         })
       } catch {
         // Staff invitation is optional: continue without blocking onboarding.
+      }
+    }
+  }
+
+  return business
+}
+
+export async function claimExternalBusinessListing(params: {
+  listingId: string
+  input: BusinessOnboardingInput
+}): Promise<BusinessRow> {
+  const { listingId, input } = params
+
+  const fixed = Math.max(0, Math.floor(input.depositFixedCents || 0))
+  const percent = Math.max(0, Math.min(100, Math.floor(input.depositPercent || 0)))
+  const minCents = Math.max(0, Math.floor(input.depositMinCents || 0))
+  const maxCents = Math.max(0, Math.floor(input.depositMaxCents || 0))
+
+  const { data, error } = await supabase.rpc('claim_external_business_listing', {
+    p_listing_id: listingId,
+    p_overrides: {
+      ...input,
+      depositFixedCents: fixed,
+      depositPercent: percent,
+      depositMinCents: minCents,
+      depositMaxCents: maxCents,
+    },
+  })
+  if (error) throw error
+  const business = data as BusinessRow
+
+  if (input.staffEmails.length > 0) {
+    for (const email of input.staffEmails) {
+      try {
+        await supabase.rpc('business_add_staff_by_email', {
+          p_business_id: business.id,
+          p_email: email,
+        })
+      } catch {
+        continue
       }
     }
   }
