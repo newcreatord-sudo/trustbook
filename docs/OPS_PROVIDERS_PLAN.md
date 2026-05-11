@@ -50,10 +50,11 @@
 
 ### Cosa serve da fare
 - Salvare in env:
-  - `VAPID_SUBJECT`
-  - `VAPID_PUBLIC_KEY`
-  - `VAPID_PRIVATE_KEY`
-- Implementare feature web push (service worker + subscribe UI + storage subscriptions + invio lato server)
+  - `WEB_PUSH_VAPID_SUBJECT`
+  - `WEB_PUSH_VAPID_PUBLIC_KEY`
+  - `WEB_PUSH_VAPID_PRIVATE_KEY`
+  - `VITE_WEB_PUSH_VAPID_PUBLIC_KEY` (uguale alla public key server)
+- Web push già predisposto (subscribe UI + invio server con `web-push`); senza env diventa no-op e resta solo canale in-app.
 
 ## A5 — FatturaPA (Aruba / Acube / FattureInCloud)
 
@@ -92,7 +93,7 @@
 ## A9 — HSTS preload (trustbook.it)
 
 ### Stato
-- Header HSTS `preload` già impostato lato API quando `NODE_ENV=production`.
+- Header HSTS `preload` impostato in `vercel.json` per tutte le route.
 
 ### Cosa serve da fare
 - Decisione strategica (preload è sostanzialmente irreversibile nel breve)
@@ -144,9 +145,10 @@
 ## A17 — Email transazionali (Resend/Postmark)
 
 ### Stato
-- Email app già via SMTP generico (Nodemailer); Auth email via Supabase.
+- Email app: SMTP (Nodemailer) oppure Resend via API (HTTP) in base a `EMAIL_PROVIDER`.
+- Auth email: via Supabase (consigliato Custom SMTP).
 
 ### Cosa serve da fare
 - Scelta provider + dominio mittente verificato (SPF/DKIM/DMARC)
 - Opzione A (zero-code): usare SMTP del provider impostando `SMTP_*`
-- Opzione B (SDK): integrazione diretta via API key (da valutare)
+- Opzione B (API): impostare `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, `EMAIL_FROM` e `EMAIL_DISPATCH_TOKEN`

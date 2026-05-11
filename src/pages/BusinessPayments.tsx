@@ -218,8 +218,8 @@ export default function BusinessPayments() {
           ) : !activeBusinessId ? (
             <EmptyState
               icon={<CreditCard className="h-5 w-5 text-white/60" />}
-              title="Pagamenti riservati all’owner"
-              description="Questa pagina mostra solo le attività di cui sei titolare. Se sei solo staff, chiedi riepiloghi pagamenti all’intestatario."
+              title="Nessuna attività collegata"
+              description="Serve almeno un’attività di cui sei titolare o membro del team per vedere i pagamenti delle caparre qui."
             />
           ) : rows.length === 0 ? (
             <EmptyState

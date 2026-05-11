@@ -23,6 +23,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // Vitest must not pick up Playwright specs under e2e/ — they live on a
+    // different runtime (browser-based) and use a different test API.
+    exclude: ['node_modules/**', 'dist/**', 'e2e/**', 'playwright-report/**'],
     env: {
       VITE_SUPABASE_URL: viteSupabaseUrl,
       VITE_SUPABASE_ANON_KEY: viteSupabaseAnon,

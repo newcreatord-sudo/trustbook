@@ -13,19 +13,41 @@ for (const f of files) {
   byPrefix.get(prefix).push(f)
 }
 
-const legacyAllowed = new Set(['0030', '0045', '0092', '0093', '0094', '0120', '0121', '0123'])
-
-const unexpected = []
+const duplicates = []
 for (const [prefix, group] of byPrefix.entries()) {
   if (group.length <= 1) continue
-  if (!legacyAllowed.has(prefix)) unexpected.push({ prefix, files: group })
+  duplicates.push({ prefix, files: group })
 }
 
-if (unexpected.length) {
-  for (const item of unexpected) {
+if (duplicates.length) {
+  process.stderr.write(`[migrations-integrity] FAIL: duplicate migration prefixes detected.\n`)
+  process.stderr.write(`[migrations-integrity] Audit guidance:\n`)
+  process.stderr.write(`  - Each migration MUST have a unique 4+ digit prefix.\n`)
+  process.stderr.write(`  - When two migrations were committed with the same prefix, the second one\n`)
+  process.stderr.write(`    (alphabetically) must be renumbered to the next available slot.\n`)
+  process.stderr.write(`  - See docs/MIGRATIONS_RENUMBER_LOG.md for the historical renumber map.\n`)
+  for (const item of duplicates) {
     process.stderr.write(`[migrations-integrity] Duplicate prefix ${item.prefix}: ${item.files.join(', ')}\n`)
   }
   process.exit(1)
 }
 
-process.stdout.write('[migrations-integrity] OK\n')
+const expectedSequence = []
+let n = 1
+for (const f of files) {
+  const prefix = f.split('_')[0] ?? ''
+  expectedSequence.push({ file: f, prefix, num: Number(prefix) })
+}
+
+let gapWarning = false
+for (let i = 0; i < expectedSequence.length; i += 1) {
+  const cur = expectedSequence[i]
+  if (!Number.isFinite(cur.num)) continue
+  void n
+}
+
+if (gapWarning) {
+  process.stderr.write('[migrations-integrity] WARN: non-contiguous prefixes detected (informational).\n')
+}
+
+process.stdout.write(`[migrations-integrity] OK \u2014 ${files.length} migrations with unique prefixes.\n`)

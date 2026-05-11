@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { captureException } from '@/lib/observability'
 
 type State = {
   hasError: boolean
@@ -15,6 +16,7 @@ export default class AppErrorBoundary extends Component<{ children: ReactNode },
   componentDidCatch(error: Error, info: ErrorInfo) {
     // Keep a readable breadcrumb for developers without exposing internals to users.
     console.error('[AppErrorBoundary]', error, info)
+    captureException(error, { componentStack: info.componentStack, boundary: 'AppErrorBoundary' })
   }
 
   render() {

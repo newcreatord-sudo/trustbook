@@ -21,6 +21,8 @@ const BusinessPayments = lazy(() => import('@/pages/BusinessPayments'))
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'))
 const AuthCallback = lazy(() => import('@/pages/AuthCallback'))
 const AiSuggestionDetail = lazy(() => import('@/pages/AiSuggestionDetail'))
+const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'))
+const AdminGate = lazy(() => import('@/providers/AdminGate'))
 
 function PageFallback() {
   return (
@@ -67,6 +69,8 @@ export default function App() {
     <ErrorBoundary>
       <Router>
         <CanonicalHostRedirect />
+        {/* Keyboard skip-to-content: invisible until focused, jumps to <main id="main"> in AppShell. */}
+        <a href="#main" className="tb-skip-link">Salta al contenuto principale</a>
         <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/start" element={<Start />} />
@@ -182,6 +186,26 @@ export default function App() {
                 <RoleGate role="attivita">
                   <BusinessPayments />
                 </RoleGate>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <AdminGate>
+                  <AdminDashboard />
+                </AdminGate>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute>
+                <AdminGate>
+                  <AdminDashboard />
+                </AdminGate>
               </ProtectedRoute>
             }
           />

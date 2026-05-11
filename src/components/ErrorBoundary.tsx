@@ -2,6 +2,7 @@ import { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import Button from '@/shared/ui/Button'
 import Card from '@/shared/ui/Card'
+import { captureException } from '@/lib/observability'
 
 interface Props {
   children: ReactNode
@@ -24,6 +25,7 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo)
+    captureException(error, { componentStack: errorInfo.componentStack, boundary: 'ErrorBoundary' })
   }
 
   public render() {

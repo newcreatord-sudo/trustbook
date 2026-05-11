@@ -1,0 +1,38 @@
+User-agent: *
+Allow: /
+Allow: /esplora
+Allow: /attivita/
+Allow: /scheda/
+Allow: /b/
+
+Disallow: /dashboard-attivita
+Disallow: /dashboard-cliente
+Disallow: /admin
+Disallow: /impostazioni
+Disallow: /onboarding
+Disallow: /prenotazioni
+Disallow: /notifiche
+Disallow: /pagamenti
+Disallow: /api/
+Disallow: /auth/
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+# Sitemap is dynamically generated and served by the platform.
+Sitemap: https://trustbook.it/sitemap.xml

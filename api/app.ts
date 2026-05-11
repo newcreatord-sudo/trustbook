@@ -20,8 +20,14 @@ import subscriptionRoutes from './routes/subscriptions.js'
 import aiToolsRoutes from './routes/aiTools.js'
 import monetizationRoutes from './routes/monetization.js'
 import reviewReportsOpsRoutes from './routes/reviewReportsOps.js'
+import seoRoutes from './routes/seo.js'
+import pushRoutes from './routes/push.js'
+import aiAgentRoutes from './routes/aiAgent.js'
 import { requestIdMiddleware } from './middleware/requestId.js'
 import { rateLimitMiddleware } from './middleware/rateLimit.js'
+import { initBackendObservability, captureBackendException, logEvent } from './lib/observability.js'
+
+void initBackendObservability()
 
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
@@ -35,13 +41,56 @@ const app: express.Application = express()
 
 app.disable('x-powered-by')
 app.use(requestIdMiddleware)
+
+/** Strict security headers applied to every response.
+ *  CSP is intentionally explicit: every external origin must be enumerated.
+ *  Stripe.js + Google Maps + Supabase + Vercel OG are the known third parties.
+ *  Frame ancestors locked to 'none' to prevent click-jacking.
+ *  Permissions-Policy locks down powerful APIs by default; geolocation is granted to self only. */
+function buildContentSecurityPolicy(): string {
+  const supabaseOrigin = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '')
+  const connectExtras = supabaseOrigin ? ` ${supabaseOrigin} wss://${supabaseOrigin.replace(/^https?:\/\//, '')}` : ''
+  const isProd = process.env.NODE_ENV === 'production'
+  const scriptSrc = isProd
+    ? "script-src 'self' https://js.stripe.com https://maps.googleapis.com https://maps.gstatic.com"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://maps.googleapis.com https://maps.gstatic.com"
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    `connect-src 'self' https://api.stripe.com https://*.supabase.co https://maps.googleapis.com https://places.googleapis.com${connectExtras}`,
+    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    "frame-ancestors 'none'",
+    "form-action 'self' https://checkout.stripe.com",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "media-src 'self' blob: https:",
+    isProd ? "upgrade-insecure-requests" : '',
+  ]
+    .filter(Boolean)
+    .join('; ')
+}
+
+const CSP_HEADER = buildContentSecurityPolicy()
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   void req
   res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+  res.setHeader(
+    'Permissions-Policy',
+    'geolocation=(self), microphone=(), camera=(), payment=(self "https://js.stripe.com"), interest-cohort=()',
+  )
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
+  res.setHeader('Content-Security-Policy', CSP_HEADER)
   if (process.env.NODE_ENV === 'production') {
-    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains')
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload')
   }
   next()
 })
@@ -102,6 +151,9 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/ai-tools', aiToolsRoutes)
 app.use('/api/monetization', monetizationRoutes)
 app.use('/api/ops/review-reports', reviewReportsOpsRoutes)
+app.use('/api/seo', seoRoutes)
+app.use('/api/push', pushRoutes)
+app.use('/api/ai', aiAgentRoutes)
 
 /**
  * health
@@ -134,11 +186,19 @@ app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
       : status >= 500 && process.env.NODE_ENV === 'production'
         ? 'Server internal error'
         : error?.message || 'Server internal error'
-  void req
+
+  const requestId = (req as unknown as { requestId?: string }).requestId ?? null
+  if (status >= 500) {
+    captureBackendException(error, { request_id: requestId, path: req.originalUrl, method: req.method, status })
+  } else {
+    logEvent('warn', 'http_error', { request_id: requestId, path: req.originalUrl, method: req.method, status, message: error?.message })
+  }
+
   void next
   res.status(status).json({
     success: false,
     error: msg,
+    requestId,
   })
 })
 

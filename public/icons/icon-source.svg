@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Placeholder PWA icon source. Replace with brand asset before production release.
+  Provides a 512x512 master to derive icon-192.png, icon-512.png, icon-maskable-192.png,
+  icon-maskable-512.png. The safe area for maskable variants is the inner 80% (40% radius).
+-->
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220" />
+      <stop offset="100%" stop-color="#070d18" />
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7398ff" />
+      <stop offset="100%" stop-color="#3559d8" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="rgba(79,124,255,0.45)" />
+      <stop offset="100%" stop-color="transparent" />
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)" />
+  <circle cx="256" cy="220" r="180" fill="url(#glow)" opacity="0.7" />
+  <rect x="120" y="120" width="272" height="272" rx="60" fill="url(#brand)" opacity="0.95" stroke="rgba(255,255,255,0.18)" stroke-width="2" />
+  <path
+    d="M178 270 L246 338 L344 196"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="40"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.96"
+  />
+</svg>

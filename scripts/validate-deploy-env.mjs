@@ -284,6 +284,23 @@ if (viteSentryDsn && sentryDsn && viteSentryDsn !== sentryDsn) {
   warnings.push('VITE_SENTRY_DSN and SENTRY_DSN differ (frontend vs backend); ensure both point to the intended Sentry project')
 }
 
+const sentryAuthToken = readKey('SENTRY_AUTH_TOKEN')
+const sentryOrg = readKey('SENTRY_ORG')
+const sentryProject = readKey('SENTRY_PROJECT')
+const sentrySourcemapsAny = Boolean(sentryAuthToken || sentryOrg || sentryProject)
+if (sentrySourcemapsAny) {
+  for (const key of ['SENTRY_AUTH_TOKEN', 'SENTRY_ORG', 'SENTRY_PROJECT']) {
+    const v = readKey(key)
+    if (!v) {
+      errors.push(`Missing required key: ${key} (required for Sentry sourcemap upload)`)
+      continue
+    }
+    if (looksPlaceholder(v)) {
+      errors.push(`Placeholder detected in ${key}`)
+    }
+  }
+}
+
 const posthogKey = readKey('VITE_POSTHOG_KEY')
 const posthogHost = readKey('VITE_POSTHOG_HOST')
 if (posthogHost && !isValidUrl(posthogHost)) {
@@ -296,12 +313,13 @@ if (posthogKey && looksPlaceholder(posthogKey)) {
   errors.push('Placeholder detected in VITE_POSTHOG_KEY')
 }
 
-const vapidPublic = readKey('VAPID_PUBLIC_KEY')
-const vapidPrivate = readKey('VAPID_PRIVATE_KEY')
-const vapidSubject = readKey('VAPID_SUBJECT')
-const vapidAny = Boolean(vapidPublic || vapidPrivate || vapidSubject)
-if (vapidAny) {
-  for (const key of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) {
+const webPushPublic = readKey('WEB_PUSH_VAPID_PUBLIC_KEY')
+const webPushPrivate = readKey('WEB_PUSH_VAPID_PRIVATE_KEY')
+const webPushSubject = readKey('WEB_PUSH_VAPID_SUBJECT')
+const viteWebPushPublic = readKey('VITE_WEB_PUSH_VAPID_PUBLIC_KEY')
+const webPushAny = Boolean(webPushPublic || webPushPrivate || webPushSubject || viteWebPushPublic)
+if (webPushAny) {
+  for (const key of ['WEB_PUSH_VAPID_PUBLIC_KEY', 'WEB_PUSH_VAPID_PRIVATE_KEY', 'WEB_PUSH_VAPID_SUBJECT']) {
     const v = readKey(key)
     if (!v) {
       errors.push(`Missing required key: ${key}`)
@@ -310,6 +328,14 @@ if (vapidAny) {
     if (looksPlaceholder(v)) {
       errors.push(`Placeholder detected in ${key}`)
     }
+  }
+
+  if (!viteWebPushPublic) {
+    errors.push('Missing required key: VITE_WEB_PUSH_VAPID_PUBLIC_KEY (required to enable web-push subscribe UI)')
+  } else if (looksPlaceholder(viteWebPushPublic)) {
+    errors.push('Placeholder detected in VITE_WEB_PUSH_VAPID_PUBLIC_KEY')
+  } else if (webPushPublic && viteWebPushPublic !== webPushPublic) {
+    warnings.push('VITE_WEB_PUSH_VAPID_PUBLIC_KEY differs from WEB_PUSH_VAPID_PUBLIC_KEY; clients must subscribe using the same public key')
   }
 }
 

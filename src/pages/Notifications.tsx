@@ -97,11 +97,19 @@ export default function Notifications() {
         { event: '*', schema: 'public', table: 'notifications', filter: `recipient_user_id=eq.${userId}` },
         () => scheduleLoad(),
       )
-      .subscribe()
+      .subscribe((status) => {
+        // Signal AppShell so it can throttle the polling fallback when realtime is healthy.
+        if (status === 'SUBSCRIBED') {
+          window.dispatchEvent(new CustomEvent('tb:realtime-online'))
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+          window.dispatchEvent(new CustomEvent('tb:realtime-offline'))
+        }
+      })
 
     return () => {
       mounted = false
       if (refetchTimerRef.current) window.clearTimeout(refetchTimerRef.current)
+      window.dispatchEvent(new CustomEvent('tb:realtime-offline'))
       void supabase.removeChannel(ch)
     }
   }, [userId])

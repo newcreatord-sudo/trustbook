@@ -1,3 +1,5 @@
+-- Renumbered from 0030_prevent_overlapping_bookings.sql (duplicate prefix audit).
+-- Content unchanged; only file prefix moved to a unique monotonic position.
 -- 0030_prevent_overlapping_bookings.sql
 
 create or replace function public.create_booking_v2(
@@ -47,7 +49,7 @@ begin
     raise exception 'blocked_by_business';
   end if;
 
-  -- 🔴 ANTI-OVERLAP CHECK
+  -- ANTI-OVERLAP CHECK
   if exists (
     select 1 from public.bookings
     where business_id = p_business_id

@@ -1,3 +1,5 @@
+-- Renumbered from 0045_subscription_change_requests.sql (duplicate prefix audit).
+-- Content unchanged; only file prefix moved to a unique monotonic position.
 create table if not exists public.subscription_change_requests (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,

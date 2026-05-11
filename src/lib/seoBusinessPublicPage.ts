@@ -168,11 +168,32 @@ export function applyBusinessPublicSeo(business: BusinessRow): () => void {
   upsertMeta('property', 'og:locale', 'it_IT')
 
   const logo = sanitizePublicHttpUrl(business.logo_url)
-  if (logo) {
-    upsertMeta('property', 'og:image', logo)
+  /**
+   * Image strategy:
+   *   1) If the business has a logo we still use it for og:image:secure_url (square).
+   *   2) Always emit a dynamic 1200x630 OG card produced by /og/business/:slug.svg
+   *      so social previews are consistent across cards without a logo. Crawlers
+   *      that prefer the first og:image still see a usable asset.
+   */
+  const origin = baseSiteUrl()
+  const dynamicOg = origin ? `${origin.replace(/\/$/, '')}/og/business/${encodeURIComponent(business.slug ?? '')}.svg` : null
+  if (dynamicOg) {
+    upsertMeta('property', 'og:image', dynamicOg)
+    upsertMeta('property', 'og:image:width', '1200')
+    upsertMeta('property', 'og:image:height', '630')
+    upsertMeta('property', 'og:image:type', 'image/svg+xml')
     upsertMeta('name', 'twitter:card', 'summary_large_image')
-    upsertMeta('name', 'twitter:image', logo)
-  } else {
+    upsertMeta('name', 'twitter:image', dynamicOg)
+  }
+  if (logo) {
+    upsertMeta('property', 'og:image:secure_url', logo)
+    if (!dynamicOg) {
+      upsertMeta('property', 'og:image', logo)
+      upsertMeta('name', 'twitter:card', 'summary_large_image')
+      upsertMeta('name', 'twitter:image', logo)
+    }
+  }
+  if (!logo && !dynamicOg) {
     upsertMeta('name', 'twitter:card', 'summary')
   }
   upsertMeta('name', 'twitter:title', title)

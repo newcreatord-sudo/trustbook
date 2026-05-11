@@ -38,6 +38,7 @@ import Card from '@/shared/ui/Card'
 import ListItem from '@/shared/ui/ListItem'
 import { useToast } from '@/shared/ui/toastContext'
 import VoiceCommandFab from '@/components/VoiceCommandFab'
+import MobileBottomNav from '@/components/MobileBottomNav'
 import type { VoiceNavContext } from '@/lib/voiceNavigation'
 import { encodeNext, safeNextPath } from '@/shared/navigation/next'
 
@@ -216,9 +217,27 @@ export default function AppShell(props: { children: React.ReactNode }) {
     }
 
     void refresh()
-    const id = window.setInterval(() => {
+    /**
+     * Polling fallback: only when the realtime channel is NOT connected.
+     * When `tb:realtime-online` is dispatched, we widen the interval to 5min
+     * (heartbeat) to reduce duplicate work; on `tb:realtime-offline` we drop back to 30s.
+     * This single-source-of-truth approach eliminates the duplicate-refresh
+     * cost noted in the audit (was: polling AND realtime concurrently).
+     */
+    let intervalMs = 30_000
+    let id = window.setInterval(() => {
       void refresh()
-    }, 30_000)
+    }, intervalMs)
+    const reschedule = (ms: number) => {
+      if (intervalMs === ms) return
+      window.clearInterval(id)
+      intervalMs = ms
+      id = window.setInterval(() => {
+        void refresh()
+      }, intervalMs)
+    }
+    const onRealtimeOnline = () => reschedule(300_000)
+    const onRealtimeOffline = () => reschedule(30_000)
     const onForceRefresh = () => {
       void refresh()
     }
@@ -227,12 +246,16 @@ export default function AppShell(props: { children: React.ReactNode }) {
     }
     window.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('tb:refresh-notifs', onForceRefresh)
+    window.addEventListener('tb:realtime-online', onRealtimeOnline)
+    window.addEventListener('tb:realtime-offline', onRealtimeOffline)
 
     return () => {
       mounted = false
       window.clearInterval(id)
       window.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('tb:refresh-notifs', onForceRefresh)
+      window.removeEventListener('tb:realtime-online', onRealtimeOnline)
+      window.removeEventListener('tb:realtime-offline', onRealtimeOffline)
     }
   }, [profile, user])
 
@@ -605,7 +628,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
       )}
 
       {isActivity ? (
-        <div className="mx-auto max-w-6xl px-4 py-6">
+        <div className="mx-auto max-w-6xl px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+72px)] md:pb-6">
           <div className="flex items-start gap-4">
             <aside
               className={cn(
@@ -653,8 +676,10 @@ export default function AppShell(props: { children: React.ReactNode }) {
           </div>
         </div>
       ) : (
-        <main className="mx-auto max-w-6xl px-4 py-6">{props.children}</main>
+        <main id="main" className="mx-auto max-w-6xl px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+72px)] md:pb-6">{props.children}</main>
       )}
+
+      {user && profile ? <MobileBottomNav role={voiceNavRole} notifCount={notifCount} /> : null}
 
       {isActivity ? (
         <div

@@ -26,6 +26,16 @@
   - Google Maps:
     - `VITE_GOOGLE_MAPS_API_KEY`
     - `VITE_GOOGLE_MAPS_MAP_ID` (non DEMO in production)
+  - Observability / analytics:
+    - `VITE_SENTRY_DSN`, `SENTRY_DSN`
+    - `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST`
+  - Web push:
+    - `WEB_PUSH_VAPID_SUBJECT`, `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`
+    - `VITE_WEB_PUSH_VAPID_PUBLIC_KEY`
+  - Email transazionali:
+    - `EMAIL_PROVIDER` (`smtp` o `resend`)
+    - `EMAIL_FROM`
+    - `RESEND_API_KEY` (se `EMAIL_PROVIDER=resend`) oppure `SMTP_*` (se `EMAIL_PROVIDER=smtp`)
   - Cron/ops:
     - `CRON_SECRET`
     - `OPS_REVIEW_REPORTS_TOKEN` (opzionale: in alternativa usa `CRON_SECRET`)
