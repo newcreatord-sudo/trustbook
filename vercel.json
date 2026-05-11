@@ -3,48 +3,40 @@
     { "src": "api/index.ts", "use": "@vercel/node" },
     { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } }
   ],
-  "headers": [
-    {
-      "source": "/assets/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    },
-    {
-      "source": "/icons/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=2592000, immutable" }
-      ]
-    },
-    {
-      "source": "/manifest.webmanifest",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=3600" },
-        { "key": "Content-Type", "value": "application/manifest+json" }
-      ]
-    },
-    {
-      "source": "/sw.js",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
-        { "key": "Service-Worker-Allowed", "value": "/" }
-      ]
-    },
-    {
-      "source": "/robots.txt",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" }
-      ]
-    }
-  ],
   "routes": [
+    {
+      "src": "/assets/(.*)",
+      "headers": { "Cache-Control": "public, max-age=31536000, immutable" },
+      "continue": true
+    },
+    {
+      "src": "/icons/(.*)",
+      "headers": { "Cache-Control": "public, max-age=2592000, immutable" },
+      "continue": true
+    },
+    {
+      "src": "/manifest.webmanifest",
+      "headers": { "Cache-Control": "public, max-age=3600", "Content-Type": "application/manifest+json" },
+      "continue": true
+    },
+    {
+      "src": "/sw.js",
+      "headers": { "Cache-Control": "public, max-age=0, must-revalidate", "Service-Worker-Allowed": "/" },
+      "continue": true
+    },
+    {
+      "src": "/robots.txt",
+      "headers": { "Cache-Control": "public, max-age=86400" },
+      "continue": true
+    },
+    {
+      "src": "/(.*)",
+      "headers": {
+        "Cache-Control": "no-store",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload"
+      },
+      "continue": true
+    },
     { "src": "/sitemap.xml", "dest": "/api/index.ts?path=seo/sitemap.xml" },
     { "src": "/og/business/(.*)\\.svg", "dest": "/api/index.ts?path=seo/og/business/$1.svg" },
     { "handle": "filesystem" },
