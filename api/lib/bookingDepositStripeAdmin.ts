@@ -10,7 +10,7 @@ import { readEnvAny } from './env.js'
 
 export function isPaymentsEnabled(): boolean {
   const raw = readEnvAny(['PAYMENTS_ENABLED', 'VITE_PAYMENTS_ENABLED'])
-  return raw !== '0'
+  return raw === '1'
 }
 
 export function getBearerToken(req: Request): string | null {
