@@ -125,8 +125,13 @@ function mustStripe(): Stripe {
 }
 
 function safeErrorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message
-  if (typeof e === 'string') return e
+  const sanitize = (s: string): string =>
+    s
+      .replace(/sk_(live|test)_[A-Za-z0-9]+/g, 'sk_$1_[redacted]')
+      .replace(/whsec_[A-Za-z0-9]+/g, 'whsec_[redacted]')
+
+  if (e instanceof Error) return sanitize(e.message)
+  if (typeof e === 'string') return sanitize(e)
   if (e && typeof e === 'object') {
     const anyE = e as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown }
     const msg = typeof anyE.message === 'string' ? anyE.message : null
@@ -134,7 +139,7 @@ function safeErrorMessage(e: unknown): string {
     const details = typeof anyE.details === 'string' ? anyE.details : null
     const hint = typeof anyE.hint === 'string' ? anyE.hint : null
     const out = [msg, code ? `code=${code}` : null, details, hint].filter((x) => typeof x === 'string' && x.trim().length > 0)
-    if (out.length) return out.join(' | ')
+    if (out.length) return sanitize(out.join(' | '))
   }
   return 'Service error'
 }
