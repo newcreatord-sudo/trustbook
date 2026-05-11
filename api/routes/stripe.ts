@@ -127,8 +127,8 @@ function mustStripe(): Stripe {
 function safeErrorMessage(e: unknown): string {
   const sanitize = (s: string): string =>
     s
-      .replace(/sk_(live|test)_[A-Za-z0-9]+/g, 'sk_$1_[redacted]')
-      .replace(/whsec_[A-Za-z0-9]+/g, 'whsec_[redacted]')
+      .replace(/sk_(live|test)_[^\s]+/g, 'sk_$1_[redacted]')
+      .replace(/whsec_[^\s]+/g, 'whsec_[redacted]')
 
   if (e instanceof Error) return sanitize(e.message)
   if (typeof e === 'string') return sanitize(e)
