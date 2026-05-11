@@ -20,6 +20,8 @@ import subscriptionRoutes from './routes/subscriptions.js'
 import aiToolsRoutes from './routes/aiTools.js'
 import monetizationRoutes from './routes/monetization.js'
 import reviewReportsOpsRoutes from './routes/reviewReportsOps.js'
+import { requestIdMiddleware } from './middleware/requestId.js'
+import { rateLimitMiddleware } from './middleware/rateLimit.js'
 
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
@@ -32,6 +34,7 @@ dotenv.config({ path: '.env' })
 const app: express.Application = express()
 
 app.disable('x-powered-by')
+app.use(requestIdMiddleware)
 app.use((req: Request, res: Response, next: NextFunction) => {
   void req
   res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -82,6 +85,7 @@ app.use(cors({
   },
   credentials: true,
 }))
+app.use(rateLimitMiddleware)
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler)
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))

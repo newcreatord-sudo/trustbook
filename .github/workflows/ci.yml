@@ -33,6 +33,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Migrations integrity
+        run: npm run check:migrations:integrity
+
       - name: Tests
         run: npm run test -- --exclude api/routes/stripe.test.ts
 

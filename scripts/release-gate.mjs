@@ -33,6 +33,7 @@ const steps = [
   { label: 'TypeScript check', cmd: 'npm run check' },
   { label: 'Lint', cmd: 'npm run lint' },
   { label: 'Tests integrity guard', cmd: 'npm run check:tests:integrity' },
+  { label: 'Migrations integrity guard', cmd: 'npm run check:migrations:integrity' },
   { label: 'Business dashboard bootstrap budget', cmd: 'npm run check:business-dashboard:bootstrap' },
   { label: 'Business dashboard runtime perf test', cmd: 'npm run test:business-dashboard:perf' },
   { label: 'Onboarding policy guard test', cmd: 'npm run test:onboarding-policy-guard' },

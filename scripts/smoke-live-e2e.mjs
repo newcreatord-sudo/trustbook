@@ -2,6 +2,7 @@ import process from 'node:process'
 import { resolve } from 'node:path'
 import dotenv from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
+import { createHmac, randomUUID } from 'node:crypto'
 
 const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
 if (envFileArg) {
@@ -94,6 +95,8 @@ const vercelBypass = vercelBypassArg?.slice('--vercel-bypass='.length).trim() ||
 const adminSignupToken =
   adminSignupTokenArg?.slice('--admin-signup-token='.length).trim() || readEnvAny(['AUTH_ADMIN_SIGNUP_TOKEN', 'ADMIN_SIGNUP_TOKEN'])
 const allowProd = readEnvAny(['E2E_ALLOW_PROD']) === '1'
+const testPayments = readEnvAny(['E2E_TEST_PAYMENTS']) === '1'
+const webhookSecret = readEnvAny(['STRIPE_WEBHOOK_SECRET', 'STRIPE_WH_SECRET'])
 
 if (!allowProd) {
   const u = new URL(baseUrl)
@@ -106,6 +109,28 @@ async function fetchTb(path, init) {
   const extra = vercelBypass ? { 'x-vercel-protection-bypass': vercelBypass } : null
   const headers = extra ? mergedHeaders(init?.headers, extra) : init?.headers
   return fetch(url, { ...(init || {}), headers })
+}
+
+function stripeSignatureHeader(rawBody, secret) {
+  const t = Math.floor(Date.now() / 1000)
+  const payload = `${t}.${rawBody}`
+  const sig = createHmac('sha256', secret).update(payload, 'utf8').digest('hex')
+  return `t=${t},v1=${sig}`
+}
+
+async function fetchStripeWebhook(params) {
+  if (!webhookSecret) throw new Error('Missing STRIPE_WEBHOOK_SECRET')
+  const raw = JSON.stringify(params.event)
+  const sig = stripeSignatureHeader(raw, webhookSecret)
+  const res = await fetchTb('/api/stripe/webhook', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'stripe-signature': sig,
+    },
+    body: raw,
+  })
+  return res
 }
 
 async function deriveSupabasePublicConfigFromDeploy() {
@@ -335,10 +360,10 @@ async function createBusinessWithDefaults(sb, params) {
       approvalMode: 'risk_based',
       requiredReliabilityMin: 0,
       cancellationWindowMin: 120,
-      depositMode: 'none',
+      depositMode: testPayments ? 'everyone' : 'none',
       depositValueType: 'percentage',
       depositFixedCents: 0,
-      depositPercent: 0,
+      depositPercent: testPayments ? 20 : 0,
       depositMinCents: 0,
       depositMaxCents: 0,
       depositGreenRule: { type: 'percentage', value: 0 },
@@ -349,7 +374,7 @@ async function createBusinessWithDefaults(sb, params) {
       refundPolicy: 'flexible',
       depositRetainedOnNoShow: false,
       depositRetainedOnLateCancel: false,
-      services: [{ name: 'Taglio e2e', durationMin: 30, priceCents: null }],
+      services: [{ name: 'Taglio e2e', durationMin: 30, priceCents: testPayments ? 10000 : null }],
       schedule: {
         0: [{ start: '09:00', end: '13:00' }, { start: '15:00', end: '19:00' }],
         1: [{ start: '09:00', end: '13:00' }, { start: '15:00', end: '19:00' }],
@@ -514,6 +539,65 @@ async function main() {
   })
 
   process.stdout.write(`[smoke-live-e2e] bookingId=${booking.id} status=${booking.status ?? '—'}\n`)
+
+  if (testPayments) {
+    const token = customerSession.access_token
+    const checkoutRes = await fetchTb('/api/stripe/deposit/checkout', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ bookingId: booking.id }),
+    })
+    await expectOk(checkoutRes, 'POST /api/stripe/deposit/checkout')
+
+    const sbService = getServiceClient()
+    if (!sbService) fail('Missing SUPABASE_SERVICE_ROLE_KEY (required for payments flow)')
+    const { data: payRow, error: payErr } = await sbService
+      .from('booking_payments')
+      .select('stripe_session_id,amount_cents,status,booking_id')
+      .eq('booking_id', booking.id)
+      .eq('provider', 'stripe')
+      .eq('kind', 'deposit')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (payErr) throw payErr
+    const sessionId = typeof payRow?.stripe_session_id === 'string' ? payRow.stripe_session_id : null
+    if (!sessionId) fail('Missing stripe_session_id after checkout')
+
+    const bookingId = booking.id
+    const event = {
+      id: `evt_${randomUUID().replace(/-/g, '')}`,
+      object: 'event',
+      api_version: '2023-10-16',
+      created: Math.floor(Date.now() / 1000),
+      livemode: false,
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: sessionId,
+          object: 'checkout.session',
+          payment_status: 'paid',
+          payment_intent: `pi_e2e_${randomUUID().replace(/-/g, '')}`,
+          metadata: {
+            booking_id: bookingId,
+            customer_user_id: customerUserId,
+            business_id: createdBiz.id,
+          },
+        },
+      },
+    }
+
+    const wh = await fetchStripeWebhook({ event })
+    await expectOk(wh, 'POST /api/stripe/webhook (checkout.session.completed)')
+
+    const paid = await listBusinessBookingPaymentsEnriched(sbOwner, { businessId: createdBiz.id, limit: 50 })
+    if (!paid.some((r) => typeof r === 'object' && r && r.booking_id === booking.id)) {
+      fail('Expected business payments to include booking after webhook')
+    }
+  }
 
   if (booking.status === 'requested' || booking.status === 'pending_approval') {
     const now = new Date().toISOString()

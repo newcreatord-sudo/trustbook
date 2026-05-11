@@ -48,6 +48,7 @@
     "stripe:bootstrap:saas:production": "node ./scripts/stripe-bootstrap-saas-plans.mjs --env-file=.env.production",
     "test": "vitest run",
     "check:tests:integrity": "node ./scripts/check-tests-integrity.mjs",
+    "check:migrations:integrity": "node ./scripts/check-migrations-integrity.mjs",
     "test:critical-owner-onboarding": "vitest run src/pages/onboarding/BusinessOnboarding.ownerFlow.test.tsx src/lib/businessSetup.onboardingOwner.test.ts src/lib/bookingRules.test.ts src/utils/antiNoShowEngine.test.ts",
     "test:onboarding-owner": "vitest run src/lib/businessSetup.onboardingOwner.test.ts",
     "test:onboarding-ui": "vitest run src/pages/onboarding/BusinessOnboarding.ownerFlow.test.tsx",
