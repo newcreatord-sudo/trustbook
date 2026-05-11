@@ -567,35 +567,44 @@ async function main() {
     const sessionId = typeof payRow?.stripe_session_id === 'string' ? payRow.stripe_session_id : null
     if (!sessionId) fail('Missing stripe_session_id after checkout')
 
-    const bookingId = booking.id
-    const event = {
-      id: `evt_${randomUUID().replace(/-/g, '')}`,
-      object: 'event',
-      api_version: '2023-10-16',
-      created: Math.floor(Date.now() / 1000),
-      livemode: false,
-      type: 'checkout.session.completed',
-      data: {
-        object: {
-          id: sessionId,
-          object: 'checkout.session',
-          payment_status: 'paid',
-          payment_intent: `pi_e2e_${randomUUID().replace(/-/g, '')}`,
-          metadata: {
-            booking_id: bookingId,
-            customer_user_id: customerUserId,
-            business_id: createdBiz.id,
-          },
-        },
-      },
+    const before = await listBusinessBookingPaymentsEnriched(sbOwner, { businessId: createdBiz.id, limit: 50 })
+    if (!before.some((r) => typeof r === 'object' && r && r.booking_id === booking.id)) {
+      fail('Expected business payments to include booking after checkout')
     }
 
-    const wh = await fetchStripeWebhook({ event })
-    await expectOk(wh, 'POST /api/stripe/webhook (checkout.session.completed)')
+    if (!webhookSecret) {
+      process.stdout.write('[smoke-live-e2e] WARN skipping webhook payment confirmation: missing STRIPE_WEBHOOK_SECRET\n')
+    } else {
+      const bookingId = booking.id
+      const event = {
+        id: `evt_${randomUUID().replace(/-/g, '')}`,
+        object: 'event',
+        api_version: '2023-10-16',
+        created: Math.floor(Date.now() / 1000),
+        livemode: false,
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: sessionId,
+            object: 'checkout.session',
+            payment_status: 'paid',
+            payment_intent: `pi_e2e_${randomUUID().replace(/-/g, '')}`,
+            metadata: {
+              booking_id: bookingId,
+              customer_user_id: customerUserId,
+              business_id: createdBiz.id,
+            },
+          },
+        },
+      }
 
-    const paid = await listBusinessBookingPaymentsEnriched(sbOwner, { businessId: createdBiz.id, limit: 50 })
-    if (!paid.some((r) => typeof r === 'object' && r && r.booking_id === booking.id)) {
-      fail('Expected business payments to include booking after webhook')
+      const wh = await fetchStripeWebhook({ event })
+      await expectOk(wh, 'POST /api/stripe/webhook (checkout.session.completed)')
+
+      const paid = await listBusinessBookingPaymentsEnriched(sbOwner, { businessId: createdBiz.id, limit: 50 })
+      if (!paid.some((r) => typeof r === 'object' && r && r.booking_id === booking.id)) {
+        fail('Expected business payments to include booking after webhook')
+      }
     }
   }
 
