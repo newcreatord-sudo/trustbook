@@ -272,6 +272,70 @@ if (fileKind === 'production') {
   }
 }
 
+const viteSentryDsn = readKey('VITE_SENTRY_DSN')
+const sentryDsn = readKey('SENTRY_DSN')
+if (viteSentryDsn && !isValidUrl(viteSentryDsn)) {
+  errors.push('VITE_SENTRY_DSN must be a valid https URL')
+}
+if (sentryDsn && !isValidUrl(sentryDsn)) {
+  errors.push('SENTRY_DSN must be a valid https URL')
+}
+if (viteSentryDsn && sentryDsn && viteSentryDsn !== sentryDsn) {
+  warnings.push('VITE_SENTRY_DSN and SENTRY_DSN differ (frontend vs backend); ensure both point to the intended Sentry project')
+}
+
+const posthogKey = readKey('VITE_POSTHOG_KEY')
+const posthogHost = readKey('VITE_POSTHOG_HOST')
+if (posthogHost && !isValidUrl(posthogHost)) {
+  errors.push('VITE_POSTHOG_HOST must be a valid https URL')
+}
+if (posthogHost && looksPlaceholder(posthogHost)) {
+  errors.push('Placeholder detected in VITE_POSTHOG_HOST')
+}
+if (posthogKey && looksPlaceholder(posthogKey)) {
+  errors.push('Placeholder detected in VITE_POSTHOG_KEY')
+}
+
+const vapidPublic = readKey('VAPID_PUBLIC_KEY')
+const vapidPrivate = readKey('VAPID_PRIVATE_KEY')
+const vapidSubject = readKey('VAPID_SUBJECT')
+const vapidAny = Boolean(vapidPublic || vapidPrivate || vapidSubject)
+if (vapidAny) {
+  for (const key of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) {
+    const v = readKey(key)
+    if (!v) {
+      errors.push(`Missing required key: ${key}`)
+      continue
+    }
+    if (looksPlaceholder(v)) {
+      errors.push(`Placeholder detected in ${key}`)
+    }
+  }
+}
+
+const emailDispatchToken = readKey('EMAIL_DISPATCH_TOKEN')
+const emailProvider = (readKey('EMAIL_PROVIDER') ?? 'smtp').toLowerCase()
+if (emailProvider && !['smtp', 'resend'].includes(emailProvider)) {
+  errors.push('EMAIL_PROVIDER must be "smtp" or "resend" when provided')
+}
+
+if (emailDispatchToken) {
+  const emailFrom = readKey('EMAIL_FROM') ?? readKey('SMTP_FROM')
+  if (!emailFrom) errors.push('EMAIL_FROM (or SMTP_FROM) is required when EMAIL_DISPATCH_TOKEN is set')
+
+  if (emailProvider === 'resend') {
+    const resendKey = readKey('RESEND_API_KEY')
+    if (!resendKey) errors.push('RESEND_API_KEY is required when EMAIL_PROVIDER=resend and EMAIL_DISPATCH_TOKEN is set')
+    if (resendKey && looksPlaceholder(resendKey)) errors.push('Placeholder detected in RESEND_API_KEY')
+  } else {
+    for (const key of ['SMTP_HOST', 'SMTP_PORT']) {
+      const v = readKey(key)
+      if (!v) errors.push(`Missing required key: ${key} (required when EMAIL_DISPATCH_TOKEN is set and EMAIL_PROVIDER=smtp)`)
+      if (v && looksPlaceholder(v)) errors.push(`Placeholder detected in ${key}`)
+    }
+  }
+}
+
 if (errors.length > 0) {
   process.stderr.write(`[env-validate] FAILED for ${envFile}:\n`)
   for (const e of errors) {

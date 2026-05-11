@@ -21,7 +21,12 @@ function env(name: string): string | null {
 }
 
 export function canSendEmail(): boolean {
-  return Boolean(env('SMTP_HOST') && env('SMTP_PORT') && env('SMTP_FROM'))
+  const provider = (env('EMAIL_PROVIDER') ?? 'smtp').toLowerCase()
+  const from = env('EMAIL_FROM') ?? env('SMTP_FROM')
+  if (provider === 'resend') {
+    return Boolean(env('RESEND_API_KEY') && from)
+  }
+  return Boolean(env('SMTP_HOST') && env('SMTP_PORT') && from)
 }
 
 export async function sendEmail(params: {
@@ -30,9 +35,34 @@ export async function sendEmail(params: {
   text: string
   html?: string
 }): Promise<void> {
+  const provider = (env('EMAIL_PROVIDER') ?? 'smtp').toLowerCase()
+  const from = env('EMAIL_FROM') ?? env('SMTP_FROM')
+  if (provider === 'resend') {
+    const apiKey = env('RESEND_API_KEY')
+    if (!apiKey || !from) throw new Error('Resend is not configured')
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: params.to,
+        subject: params.subject,
+        text: params.text,
+        html: params.html,
+      }),
+    })
+    if (!r.ok) {
+      const msg = await r.text().catch(() => '')
+      throw new Error(msg ? `Resend error: ${msg}` : 'Resend error')
+    }
+    return
+  }
+
   const host = env('SMTP_HOST')
   const portRaw = env('SMTP_PORT')
-  const from = env('SMTP_FROM')
   if (!host || !portRaw || !from) throw new Error('SMTP is not configured')
 
   const port = Number(portRaw)
@@ -57,4 +87,3 @@ export async function sendEmail(params: {
     html: params.html,
   })
 }
-
