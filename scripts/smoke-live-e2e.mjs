@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
 import dotenv from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
 import { createHmac, randomUUID } from 'node:crypto'
@@ -7,7 +8,13 @@ import { createHmac, randomUUID } from 'node:crypto'
 const envFileArg = process.argv.find((x) => x.startsWith('--env-file=')) ?? null
 if (envFileArg) {
   const envFile = envFileArg.slice('--env-file='.length).trim()
-  if (envFile) dotenv.config({ path: resolve(process.cwd(), envFile), override: true })
+  if (envFile) {
+    dotenv.config({ path: resolve(process.cwd(), envFile), override: true })
+    const local = `${envFile}.local`
+    if (existsSync(resolve(process.cwd(), local))) {
+      dotenv.config({ path: resolve(process.cwd(), local), override: true })
+    }
+  }
 }
 
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })
