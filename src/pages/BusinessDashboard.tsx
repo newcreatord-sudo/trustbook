@@ -61,9 +61,7 @@ import {
 import { businessReviewBlockedMessage, businessReviewEligibility, REVIEW_COMMENT_MAX_LENGTH, REVIEW_WINDOW_DAYS } from '@/lib/reviewEligibility'
 import { safeParseBookingRow } from '@/domain/parse'
 
-/** PostgREST di solito pagina a 1000 righe; richieste parallele per coprire volumi più alti sul dashboard. */
-const DASHBOARD_BOOKINGS_PAGE_SIZE = 1000
-const DASHBOARD_BOOKINGS_PARALLEL_PAGES = 3
+const DASHBOARD_BOOKINGS_BOOTSTRAP_LIMIT = 400
 
 const DASHBOARD_TAB_KEYS = [
   'tutte',
@@ -112,10 +110,11 @@ export default function BusinessDashboard() {
   const bumpBusinessPlanReload = useCallback(() => setBusinessPlanReloadTick((x) => x + 1), [])
   const [loadingBusinesses, setLoadingBusinesses] = useState(true)
   const [bookings, setBookings] = useState<BookingRow[]>([])
-  /** Ultima pagina “piena”: potrebbero esistere prenotazioni più vecchie non caricate → KPI storici potenzialmente incompleti */
-  const [bookingsTruncated, setBookingsTruncated] = useState(false)
+  const [bookingsHasMore, setBookingsHasMore] = useState(false)
+  const [bookingsNextCursor, setBookingsNextCursor] = useState<string | null>(null)
   const [dashboardBookingKpis, setDashboardBookingKpis] = useState<DashboardBookingKpis | null>(null)
   const [loadingBookings, setLoadingBookings] = useState(false)
+  const [loadingMoreBookings, setLoadingMoreBookings] = useState(false)
   const [reliability, setReliability] = useState<
     Record<string, { score: number; stars: number; noShowCount: number; lateCancelCount: number }>
   >({})
@@ -199,7 +198,8 @@ export default function BusinessDashboard() {
       setBusinesses([])
       setActiveBusinessId(null)
       setBookings([])
-      setBookingsTruncated(false)
+      setBookingsHasMore(false)
+      setBookingsNextCursor(null)
       setDashboardBookingKpis(null)
       return
     }
@@ -301,7 +301,8 @@ export default function BusinessDashboard() {
   useEffect(() => {
     if (!activeBusinessId) {
       setBookings([])
-      setBookingsTruncated(false)
+      setBookingsHasMore(false)
+      setBookingsNextCursor(null)
       setDashboardBookingKpis(null)
       setServices([])
       setOpeningWindows([])
@@ -312,7 +313,8 @@ export default function BusinessDashboard() {
     let mounted = true
 
     setLoadingBookings(true)
-    setBookingsTruncated(false)
+    setBookingsHasMore(false)
+    setBookingsNextCursor(null)
     setDashboardBookingKpis(null)
     setBookings([])
     setServices([])
@@ -327,138 +329,64 @@ export default function BusinessDashboard() {
 
     ;(async () => {
       try {
-        const bookingPageRequests = Array.from({ length: DASHBOARD_BOOKINGS_PARALLEL_PAGES }, (_, page) => {
-          const from = page * DASHBOARD_BOOKINGS_PAGE_SIZE
-          const to = from + DASHBOARD_BOOKINGS_PAGE_SIZE - 1
-          return supabase
-            .from('bookings')
-            .select('*')
-            .eq('business_id', activeBusinessId)
-            .order('start_at', { ascending: false })
-            .range(from, to)
-        })
-
         const browserTz =
           typeof Intl !== 'undefined'
             ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'Europe/Rome'
             : 'Europe/Rome'
 
-        const [bookingsPagesRes, servicesRes, windowsRes, closuresRes, reviewsRes, kpisRes] = await Promise.all([
-          Promise.all(bookingPageRequests),
-          supabase
-            .from('services')
-            .select('*')
-            .eq('business_id', activeBusinessId)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('business_opening_windows')
-            .select('*')
-            .eq('business_id', activeBusinessId)
-            .order('weekday', { ascending: true })
-            .order('start_time', { ascending: true }),
-          supabase
-            .from('business_closures')
-            .select('*')
-            .eq('business_id', activeBusinessId)
-            .order('start_at', { ascending: false }),
-          supabase
-            .from('reviews')
-            .select('booking_id,direction')
-            .eq('business_id', activeBusinessId),
-          supabase.rpc('business_dashboard_booking_kpis', {
-            p_business_id: activeBusinessId,
-            p_timezone: browserTz,
-          }),
-        ])
+        const bootstrapRes = await supabase.rpc('business_dashboard_bootstrap_v1', {
+          p_business_id: activeBusinessId,
+          p_timezone: browserTz,
+          p_limit: DASHBOARD_BOOKINGS_BOOTSTRAP_LIMIT,
+          p_cursor: null,
+        })
         if (!mounted) return
-        for (const br of bookingsPagesRes) {
-          if (br.error) throw br.error
-        }
-        if (servicesRes.error) throw servicesRes.error
-        if (windowsRes.error) throw windowsRes.error
-        if (closuresRes.error) throw closuresRes.error
-        if (reviewsRes.error) throw reviewsRes.error
+        if (bootstrapRes.error) throw bootstrapRes.error
+        const payload = (bootstrapRes.data ?? null) as
+          | null
+          | {
+              bookings?: unknown[]
+              has_more?: boolean
+              next_cursor?: string | null
+              services?: unknown[]
+              opening_windows?: unknown[]
+              closures?: unknown[]
+              reviewed_booking_ids?: unknown[]
+              reliability_by_user_id?: Record<string, unknown>
+              profiles_by_id?: Record<string, unknown>
+              tags_by_user_id?: Record<string, unknown>
+              booking_has_note?: Record<string, unknown>
+              kpis?: unknown
+            }
 
-        let parsedKpis = !kpisRes.error && kpisRes.data ? parseDashboardBookingKpis(kpisRes.data) : null
-        if (!parsedKpis && mounted && kpisRes.error) {
-          const k2 = await supabase.rpc('business_dashboard_booking_kpis', {
-            p_business_id: activeBusinessId,
-            p_timezone: 'Europe/Rome',
-          })
-          if (!mounted) return
-          parsedKpis = !k2.error && k2.data ? parseDashboardBookingKpis(k2.data) : null
-        }
-        if (mounted) setDashboardBookingKpis(parsedKpis)
+        const parsedKpis = payload?.kpis ? parseDashboardBookingKpis(payload.kpis) : null
+        setDashboardBookingKpis(parsedKpis)
 
-        const mergedMap = new Map<string, BookingRow>()
-        for (const br of bookingsPagesRes) {
-          for (const row of (br.data as BookingRow[]) ?? []) {
-            mergedMap.set(row.id, row)
-          }
-        }
-        const list = Array.from(mergedMap.values()).sort(
-          (a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime(),
-        )
-        const lastPageRows = bookingsPagesRes[DASHBOARD_BOOKINGS_PARALLEL_PAGES - 1]?.data ?? []
-        setBookingsTruncated(Array.isArray(lastPageRows) && lastPageRows.length === DASHBOARD_BOOKINGS_PAGE_SIZE)
+        const list = ((payload?.bookings ?? []) as unknown[])
+          .map((x) => safeParseBookingRow(x))
+          .filter((x): x is BookingRow => Boolean(x))
+          .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime())
+
         setBookings(list)
-        setServices((servicesRes.data as ServiceRow[]) ?? [])
-        setOpeningWindows((windowsRes.data as BusinessOpeningWindowRow[]) ?? [])
-        setClosures((closuresRes.data as BusinessClosureRow[]) ?? [])
+        setBookingsHasMore(Boolean(payload?.has_more))
+        setBookingsNextCursor(payload?.next_cursor ?? null)
+        setServices(((payload?.services ?? []) as ServiceRow[]) ?? [])
+        setOpeningWindows(((payload?.opening_windows ?? []) as BusinessOpeningWindowRow[]) ?? [])
+        setClosures(((payload?.closures ?? []) as BusinessClosureRow[]) ?? [])
 
         const reviewedSet = new Set<string>()
-        for (const r of (reviewsRes.data as Array<{ booking_id: string; direction: string }>) ?? []) {
-          if (r.direction === 'business_to_customer') reviewedSet.add(r.booking_id)
+        for (const id of ((payload?.reviewed_booking_ids ?? []) as unknown[])) {
+          if (typeof id === 'string' && id) reviewedSet.add(id)
         }
         setReviewedBookings(reviewedSet)
 
-        const customerIds = Array.from(new Set(list.map((b) => b.customer_user_id)))
-        if (customerIds.length === 0) {
-          setReliability({})
-          setCustomerProfiles({})
-          setCustomerTags({})
-          setBookingHasNote({})
-          return
-        }
-        const bookingIds = list.map((b) => b.id)
-        const notesPromise = bookingIds.length
-          ? supabase
-            .from('booking_internal_notes')
-            .select('booking_id,body')
-            .in('booking_id', bookingIds)
-          : Promise.resolve({ data: [], error: null } as const)
-        const [relRes, profilesRes, tagsRes, notesRes] = await Promise.all([
-          supabase
-            .from('customer_reliability')
-            .select('user_id,score,stars,no_show_count,late_cancel_count')
-            .in('user_id', customerIds),
-          supabase
-            .from('profiles')
-            .select('id,first_name,last_name,phone')
-            .in('id', customerIds),
-          supabase
-            .from('business_customer_tags')
-            .select('id,business_id,customer_user_id,tag')
-            .eq('business_id', activeBusinessId)
-            .in('customer_user_id', customerIds),
-          notesPromise,
-        ])
-        if (!mounted) return
-        if (relRes.error) throw relRes.error
-        if (profilesRes.error) throw profilesRes.error
-        if (tagsRes.error) throw tagsRes.error
-        if (notesRes.error) throw notesRes.error
-
         const relMap: Record<string, { score: number; stars: number; noShowCount: number; lateCancelCount: number }> = {}
-        for (const r of
-          (relRes.data as Array<{
-            user_id: string
-            score: number
-            stars: number
-            no_show_count: number
-            late_cancel_count: number
-          }>) ?? []) {
-          relMap[r.user_id] = {
+        const rel = (payload?.reliability_by_user_id ?? {}) as Record<
+          string,
+          { score?: number; stars?: number; no_show_count?: number; late_cancel_count?: number }
+        >
+        for (const [id, r] of Object.entries(rel)) {
+          relMap[id] = {
             score: r.score ?? 80,
             stars: r.stars ?? 0,
             noShowCount: r.no_show_count ?? 0,
@@ -468,27 +396,28 @@ export default function BusinessDashboard() {
         setReliability(relMap)
 
         const pMap: Record<string, Pick<ProfileRow, 'first_name' | 'last_name' | 'phone'>> = {}
-        for (const p of (profilesRes.data as Array<Pick<ProfileRow, 'id' | 'first_name' | 'last_name' | 'phone'>>) ?? []) {
-          pMap[p.id] = { first_name: p.first_name ?? null, last_name: p.last_name ?? null, phone: p.phone ?? null }
+        const prof = (payload?.profiles_by_id ?? {}) as Record<string, { first_name?: string | null; last_name?: string | null; phone?: string | null }>
+        for (const [id, p] of Object.entries(prof)) {
+          pMap[id] = { first_name: p.first_name ?? null, last_name: p.last_name ?? null, phone: p.phone ?? null }
         }
         setCustomerProfiles(pMap)
 
         const tagMap: Record<string, string[]> = {}
-        for (const t of (tagsRes.data as Array<{ customer_user_id: string; tag: string }>) ?? []) {
-          if (!tagMap[t.customer_user_id]) tagMap[t.customer_user_id] = []
-          if (!tagMap[t.customer_user_id].includes(t.tag)) tagMap[t.customer_user_id].push(t.tag)
+        const tags = (payload?.tags_by_user_id ?? {}) as Record<string, unknown>
+        for (const [id, raw] of Object.entries(tags)) {
+          const arr = Array.isArray(raw)
+            ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+            : []
+          tagMap[id] = Array.from(new Set(arr))
         }
         setCustomerTags(tagMap)
 
-        if (bookingIds.length) {
-          const noteMap: Record<string, boolean> = {}
-          for (const n of (notesRes.data as Array<{ booking_id: string; body: string }>) ?? []) {
-            noteMap[n.booking_id] = Boolean((n.body ?? '').trim())
-          }
-          setBookingHasNote(noteMap)
-        } else {
-          setBookingHasNote({})
+        const noteMap: Record<string, boolean> = {}
+        const notes = (payload?.booking_has_note ?? {}) as Record<string, unknown>
+        for (const [id, raw] of Object.entries(notes)) {
+          noteMap[id] = Boolean(raw)
         }
+        setBookingHasNote(noteMap)
       } catch (e: unknown) {
         if (!mounted) return
         setError(errorMessage(e, 'Errore caricamento prenotazioni.'))
@@ -539,6 +468,114 @@ export default function BusinessDashboard() {
       void supabase.removeChannel(channel)
     }
   }, [activeBusinessId])
+
+  const loadMoreBookings = useCallback(async () => {
+    if (!activeBusinessId || !bookingsHasMore || !bookingsNextCursor || loadingMoreBookings) return
+    setLoadingMoreBookings(true)
+    try {
+      const browserTz =
+        typeof Intl !== 'undefined'
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'Europe/Rome'
+          : 'Europe/Rome'
+      const bootstrapRes = await supabase.rpc('business_dashboard_bootstrap_v1', {
+        p_business_id: activeBusinessId,
+        p_timezone: browserTz,
+        p_limit: DASHBOARD_BOOKINGS_BOOTSTRAP_LIMIT,
+        p_cursor: bookingsNextCursor,
+      })
+      if (bootstrapRes.error) throw bootstrapRes.error
+      const payload = (bootstrapRes.data ?? null) as
+        | null
+        | {
+            bookings?: unknown[]
+            has_more?: boolean
+            next_cursor?: string | null
+            reviewed_booking_ids?: unknown[]
+            reliability_by_user_id?: Record<string, unknown>
+            profiles_by_id?: Record<string, unknown>
+            tags_by_user_id?: Record<string, unknown>
+            booking_has_note?: Record<string, unknown>
+          }
+
+      const newRows = ((payload?.bookings ?? []) as unknown[])
+        .map((x) => safeParseBookingRow(x))
+        .filter((x): x is BookingRow => Boolean(x))
+      if (newRows.length) {
+        setBookings((prev) => {
+          const m = new Map<string, BookingRow>()
+          for (const x of prev) m.set(x.id, x)
+          for (const x of newRows) m.set(x.id, x)
+          return Array.from(m.values()).sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime())
+        })
+      }
+      setBookingsHasMore(Boolean(payload?.has_more))
+      setBookingsNextCursor(payload?.next_cursor ?? null)
+
+      if (payload?.reviewed_booking_ids) {
+        setReviewedBookings((prev) => {
+          const next = new Set(prev)
+          for (const id of payload.reviewed_booking_ids ?? []) {
+            if (typeof id === 'string' && id) next.add(id)
+          }
+          return next
+        })
+      }
+
+      if (payload?.reliability_by_user_id) {
+        setReliability((prev) => {
+          const next = { ...prev }
+          const rel = payload.reliability_by_user_id as Record<
+            string,
+            { score?: number; stars?: number; no_show_count?: number; late_cancel_count?: number }
+          >
+          for (const [id, r] of Object.entries(rel)) {
+            next[id] = {
+              score: r.score ?? 80,
+              stars: r.stars ?? 0,
+              noShowCount: r.no_show_count ?? 0,
+              lateCancelCount: r.late_cancel_count ?? 0,
+            }
+          }
+          return next
+        })
+      }
+
+      if (payload?.profiles_by_id) {
+        setCustomerProfiles((prev) => {
+          const next = { ...prev }
+          const prof = payload.profiles_by_id as Record<
+            string,
+            { first_name?: string | null; last_name?: string | null; phone?: string | null }
+          >
+          for (const [id, p] of Object.entries(prof)) {
+            next[id] = { first_name: p.first_name ?? null, last_name: p.last_name ?? null, phone: p.phone ?? null }
+          }
+          return next
+        })
+      }
+
+      if (payload?.tags_by_user_id) {
+        setCustomerTags((prev) => {
+          const next = { ...prev }
+          for (const [id, raw] of Object.entries(payload.tags_by_user_id ?? {})) {
+            const arr = Array.isArray(raw)
+              ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+              : []
+            next[id] = Array.from(new Set([...(next[id] ?? []), ...arr]))
+          }
+          return next
+        })
+      }
+
+      if (payload?.booking_has_note) {
+        setBookingHasNote((prev) => ({ ...prev, ...(payload.booking_has_note as Record<string, boolean>) }))
+      }
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Errore caricamento prenotazioni.'))
+    } finally {
+      setLoadingMoreBookings(false)
+    }
+  }, [activeBusinessId, bookingsHasMore, bookingsNextCursor, loadingMoreBookings])
 
   const activeBusiness = useMemo(() => {
     if (!activeBusinessId) return null
@@ -1284,23 +1321,21 @@ export default function BusinessDashboard() {
                 </div>
 
                 <div className="mt-4 space-y-4">
-                  {bookingsTruncated && !loadingBookings ? (
+                  {bookingsHasMore && !loadingBookings ? (
                     <Alert tone="info">
                       {dashboardBookingKpis ? (
                         <>
-                          Le liste (prenotazioni, clienti collegati) usano al massimo{' '}
-                          {DASHBOARD_BOOKINGS_PAGE_SIZE * DASHBOARD_BOOKINGS_PARALLEL_PAGES} righe recenti. I numeri in evidenza nella
-                          panoramica (oggi, in attesa, ultimi 30 giorni, prossimi 7 giorni) sono calcolati sul database ed sono{' '}
-                          <span className="text-white">completi</span>.
+                          Le liste caricano un campione iniziale (fino a {DASHBOARD_BOOKINGS_BOOTSTRAP_LIMIT} prenotazioni). I KPI in
+                          evidenza sono calcolati sul database e sono <span className="text-white">completi</span>.
                         </>
                       ) : (
-                        <>
-                          Panoramica e KPI storici si basano sulle ultime{' '}
-                          {DASHBOARD_BOOKINGS_PAGE_SIZE * DASHBOARD_BOOKINGS_PARALLEL_PAGES} prenotazioni per data (ordinate dalla più
-                          recente). Applica la migrazione KPI server o verifica la connessione: senza RPC gli aggregati possono essere
-                          incompleti ad alto volume.
-                        </>
+                        <>I KPI server non risultano disponibili: con volumi alti, alcuni numeri potrebbero essere incompleti.</>
                       )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" size="sm" onClick={() => void loadMoreBookings()} disabled={loadingMoreBookings}>
+                          {loadingMoreBookings ? 'Carico…' : 'Carica altre prenotazioni'}
+                        </Button>
+                      </div>
                     </Alert>
                   ) : null}
 

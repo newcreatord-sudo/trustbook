@@ -8,20 +8,6 @@ import { useAuth } from '@/providers/authContext'
 const QUERY_DELAY_MS = 90
 const PERF_BUDGET_MS = 820
 
-const phase1Tables = new Set([
-  'bookings',
-  'services',
-  'business_opening_windows',
-  'business_closures',
-  'reviews',
-])
-const phase2Tables = new Set([
-  'customer_reliability',
-  'profiles',
-  'business_customer_tags',
-  'booking_internal_notes',
-])
-
 const tableStartedAt = new Map<string, number>()
 const tableResolvedAt = new Map<string, number>()
 
@@ -35,10 +21,6 @@ function markStarted(table: string) {
 
 function markResolved(table: string) {
   tableResolvedAt.set(table, nowMs())
-}
-
-function shouldDelay(table: string) {
-  return phase1Tables.has(table) || phase2Tables.has(table)
 }
 
 function responseForTable(table: string) {
@@ -92,7 +74,7 @@ function responseForTable(table: string) {
   }
 
   const payload = payloadByTable[table] ?? []
-  const delay = shouldDelay(table) ? QUERY_DELAY_MS : 1
+  const delay = table === 'businesses' || table === 'team_members' || table === 'business_customer_blocks' ? QUERY_DELAY_MS : 1
   return new Promise<{ data: unknown[]; error: null }>((resolve) => {
     setTimeout(() => {
       markResolved(table)
@@ -140,24 +122,72 @@ vi.mock('@/lib/supabase', () => {
     on: vi.fn(() => channel),
     subscribe: vi.fn(() => channel),
   }
-  const emptyKpis = {
-    timezone: 'Europe/Rome',
-    today_active_count: 0,
-    upcoming_7_active_count: 0,
-    pending_pipeline_count: 0,
-    last30: {
-      completed: 0,
-      no_show: 0,
-      late_cancel: 0,
-      show_denominator: 0,
-      forfeited_deposit_cents: 0,
-      forfeited_deposit_cases: 0,
-    },
+  function responseForBootstrap() {
+    markStarted('rpc_bootstrap')
+    return new Promise<{ data: unknown; error: null }>((resolve) => {
+      setTimeout(() => {
+        markResolved('rpc_bootstrap')
+        resolve({
+          data: {
+            bookings: [
+              {
+                id: 'bk-1',
+                business_id: 'biz-1',
+                customer_user_id: 'cust-1',
+                service_id: 'svc-1',
+                start_at: '2026-01-10T09:00:00.000Z',
+                end_at: '2026-01-10T10:00:00.000Z',
+                status: 'accepted',
+                created_at: '2026-01-01T09:00:00.000Z',
+              },
+            ],
+            has_more: false,
+            next_cursor: null,
+            services: [{ id: 'svc-1', business_id: 'biz-1', name: 'Taglio', created_at: '2026-01-01T08:00:00.000Z' }],
+            opening_windows: [
+              {
+                id: 'w-1',
+                business_id: 'biz-1',
+                weekday: 1,
+                start_time: '09:00:00',
+                end_time: '18:00:00',
+              },
+            ],
+            closures: [],
+            reviewed_booking_ids: ['bk-1'],
+            reliability_by_user_id: {
+              'cust-1': { score: 80, stars: 4, no_show_count: 0, late_cancel_count: 0 },
+            },
+            profiles_by_id: { 'cust-1': { first_name: 'Mario', last_name: 'Rossi', phone: null } },
+            tags_by_user_id: { 'cust-1': ['vip'] },
+            booking_has_note: { 'bk-1': true },
+            kpis: {
+              timezone: 'Europe/Rome',
+              today_active_count: 0,
+              upcoming_7_active_count: 0,
+              pending_pipeline_count: 0,
+              last30: {
+                completed: 0,
+                no_show: 0,
+                late_cancel: 0,
+                show_denominator: 0,
+                forfeited_deposit_cents: 0,
+                forfeited_deposit_cases: 0,
+              },
+            },
+          },
+          error: null,
+        })
+      }, QUERY_DELAY_MS)
+    })
   }
   return {
     supabase: {
       from: vi.fn((table: string) => createThenableQuery(table)),
-      rpc: vi.fn(async () => ({ data: emptyKpis, error: null })),
+      rpc: vi.fn(async (fnName: string) => {
+        if (fnName === 'business_dashboard_bootstrap_v1') return responseForBootstrap()
+        return { data: null, error: null }
+      }),
       channel: vi.fn(() => channel),
       removeChannel: vi.fn(async () => ({ error: null })),
     },
@@ -203,15 +233,8 @@ describe('BusinessDashboard bootstrap performance budget', () => {
     )
 
     await waitFor(() => {
-      expect(tableResolvedAt.has('bookings')).toBe(true)
-      expect(tableResolvedAt.has('services')).toBe(true)
-      expect(tableResolvedAt.has('business_opening_windows')).toBe(true)
-      expect(tableResolvedAt.has('business_closures')).toBe(true)
-      expect(tableResolvedAt.has('reviews')).toBe(true)
-      expect(tableResolvedAt.has('customer_reliability')).toBe(true)
-      expect(tableResolvedAt.has('profiles')).toBe(true)
-      expect(tableResolvedAt.has('business_customer_tags')).toBe(true)
-      expect(tableResolvedAt.has('booking_internal_notes')).toBe(true)
+      expect(tableResolvedAt.has('rpc_bootstrap')).toBe(true)
+      expect(tableResolvedAt.has('businesses')).toBe(true)
     })
 
     const elapsedMs = nowMs() - startedAt

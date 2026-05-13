@@ -312,6 +312,50 @@ describe('BusinessDashboard booking actions', () => {
     subscriptionMocks.fetchBusinessSubscription.mockResolvedValue(null)
     subscriptionMocks.fetchSubscriptionPlans.mockResolvedValue([])
     rpcMock.mockImplementation(async (fnName: string, params?: Record<string, unknown>) => {
+      if (fnName === 'business_dashboard_bootstrap_v1') {
+        const listBooking = bookingOverride.current ?? makePendingBooking()
+        return {
+          data: {
+            bookings: [listBooking],
+            has_more: false,
+            next_cursor: null,
+            services: [
+              {
+                id: 'svc-1',
+                business_id: 'biz-1',
+                name: 'Taglio',
+                duration_min: 60,
+                price_cents: 2500,
+                description: null,
+                is_active: true,
+                created_at: '2026-01-01T08:00:00.000Z',
+                updated_at: '2026-01-01T08:00:00.000Z',
+              },
+            ],
+            opening_windows: [
+              {
+                id: 'w-1',
+                business_id: 'biz-1',
+                weekday: 1,
+                start_time: '09:00:00',
+                end_time: '18:00:00',
+              },
+            ],
+            closures: [],
+            reviewed_booking_ids: [],
+            reliability_by_user_id: {
+              [listBooking.customer_user_id]: { score: 80, stars: 4, no_show_count: 0, late_cancel_count: 0 },
+            },
+            profiles_by_id: {
+              [listBooking.customer_user_id]: { first_name: 'Mario', last_name: 'Rossi', phone: null },
+            },
+            tags_by_user_id: {},
+            booking_has_note: {},
+            kpis: kpisPayload,
+          },
+          error: null,
+        }
+      }
       if (fnName === 'business_dashboard_booking_kpis') {
         return { data: kpisPayload, error: null }
       }
