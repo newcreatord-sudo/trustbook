@@ -100,14 +100,11 @@ Questa checklist separa:
 ## A9 — HSTS preload (trustbook.it)
 
 ### Stato tecnico
-- `www.trustbook.it` serve già `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
-- `trustbook.it` attualmente risponde con redirect 307 e HSTS senza `includeSubDomains; preload` (non preload-ready)
+- `trustbook.it` e `www.trustbook.it` servono `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
+- Submission su hstspreload.org effettuata (stato: pending inclusion)
 
 ### Step
-- In Vercel, aggiungere una regola CDN/Routing Rule che:
-  - match: Host = `trustbook.it`, Path = `/:path*`
-  - action: Response header `Strict-Transport-Security = max-age=63072000; includeSubDomains; preload`
-- Rieseguire verifica header su apex e www, poi submit su hstspreload.org.
+- Verificare periodicamente lo stato su hstspreload.org finché non risulta incluso.
 
 ## A10 — Dominio admin (admin.trustbook.it)
 
@@ -151,4 +148,3 @@ Serve strategia commerciale + migrazione coerente (Stripe + UI + comunicazioni).
 
 ### Verifica
 - Eseguire un invio transazionale in staging (reset password o notifica) e controllare deliverability e link.
-

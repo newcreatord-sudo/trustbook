@@ -20,6 +20,7 @@ import subscriptionRoutes from './routes/subscriptions.js'
 import aiToolsRoutes from './routes/aiTools.js'
 import monetizationRoutes from './routes/monetization.js'
 import reviewReportsOpsRoutes from './routes/reviewReportsOps.js'
+import opsRoutes from './routes/ops.js'
 import seoRoutes from './routes/seo.js'
 import pushRoutes from './routes/push.js'
 import aiAgentRoutes from './routes/aiAgent.js'
@@ -151,6 +152,7 @@ app.use('/api/subscriptions', subscriptionRoutes)
 app.use('/api/ai-tools', aiToolsRoutes)
 app.use('/api/monetization', monetizationRoutes)
 app.use('/api/ops/review-reports', reviewReportsOpsRoutes)
+app.use('/api/ops', opsRoutes)
 app.use('/api/seo', seoRoutes)
 app.use('/api/push', pushRoutes)
 app.use('/api/ai', aiAgentRoutes)
