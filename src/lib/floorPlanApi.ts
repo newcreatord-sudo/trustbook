@@ -119,6 +119,14 @@ export interface AiSuggestedResource {
   zone: string
 }
 
+async function mustAccessToken(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  const token = data.session?.access_token
+  if (!token) throw new Error('Sessione non valida')
+  return token
+}
+
 export interface OccupiedResourceAt {
   resource_id: string
   resource_label: string
@@ -391,24 +399,29 @@ export async function assignTableToBooking(
   resourceId: string,
   partySize?: number | null,
 ): Promise<void> {
-  const { error } = await supabase.rpc('assign_table_to_booking', {
-    p_booking_id: bookingId,
-    p_resource_id: resourceId,
-    p_party_size: partySize ?? null,
+  const token = await mustAccessToken()
+  const res = await fetch('/api/bookings/business/assign-resource', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bookingId, resourceId, partySize: partySize ?? null }),
   })
-  if (error) throw error
+  const json = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null
+  if (!res.ok || !json?.success) throw new Error(json?.error || 'Errore assegnazione risorsa')
 }
 
 export async function autoAssignResourceForBooking(
   bookingId: string,
   partySizeHint?: number | null,
 ): Promise<string | null> {
-  const { data, error } = await supabase.rpc('auto_assign_resource_for_booking', {
-    p_booking_id: bookingId,
-    p_party_size_hint: partySizeHint ?? null,
+  const token = await mustAccessToken()
+  const res = await fetch('/api/bookings/business/auto-assign-resource', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bookingId, partySizeHint: partySizeHint ?? null }),
   })
-  if (error) throw error
-  return data as string | null
+  const json = (await res.json().catch(() => null)) as { success?: boolean; resourceId?: string | null; error?: string } | null
+  if (!res.ok || !json?.success) throw new Error(json?.error || 'Errore auto-assegnazione risorsa')
+  return json.resourceId ?? null
 }
 
 /** Eliminazione piano via RPC owner-only (`delete_floor_plan`). */

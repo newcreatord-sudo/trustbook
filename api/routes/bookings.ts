@@ -32,6 +32,13 @@ function readBookingId(req: Request): string | null {
   return bookingId ? bookingId : null
 }
 
+function asUuid(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (!s) return null
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s) ? s : null
+}
+
 function readIsoDate(req: Request, key: string): string | null {
   const raw = String((req.body as Record<string, unknown> | null | undefined)?.[key] ?? '').trim()
   if (!raw) return null
@@ -39,6 +46,102 @@ function readIsoDate(req: Request, key: string): string | null {
   if (!Number.isFinite(d.getTime())) return null
   return d.toISOString()
 }
+
+router.post('/business/assign-resource', async (req: Request, res: Response) => {
+  try {
+    const bookingId = asUuid(req.body?.bookingId)
+    const resourceId = asUuid(req.body?.resourceId)
+    if (!bookingId || !resourceId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId/resourceId' })
+      return
+    }
+
+    const partySize = typeof req.body?.partySize === 'number' ? Math.floor(req.body.partySize) : null
+    const partySizeSafe = Number.isFinite(partySize as number) && (partySize as number) >= 1 ? (partySize as number) : null
+
+    const sb = mustAuthedSupabase(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const { error: aErr } = await sb.rpc('assign_table_to_booking', { p_booking_id: bookingId, p_resource_id: resourceId })
+    if (aErr) {
+      const msg = primaryRpcErrorMessage(aErr) || safeErrorMessage(aErr)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'member_only' || msg === 'not_authorized') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg === 'resource_not_available') {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      throw aErr
+    }
+
+    if (partySizeSafe !== null) {
+      const { error: psErr } = await sb.rpc('set_booking_primary_resource', {
+        p_booking_id: bookingId,
+        p_resource_id: resourceId,
+        p_party_size: partySizeSafe,
+      })
+      if (psErr) throw psErr
+    }
+
+    res.status(200).json({ success: true })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+  }
+})
+
+router.post('/business/auto-assign-resource', async (req: Request, res: Response) => {
+  try {
+    const bookingId = asUuid(req.body?.bookingId)
+    if (!bookingId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId' })
+      return
+    }
+
+    const partySizeHint = typeof req.body?.partySizeHint === 'number' ? Math.floor(req.body.partySizeHint) : null
+    const partySizeSafe =
+      Number.isFinite(partySizeHint as number) && (partySizeHint as number) >= 1 ? (partySizeHint as number) : null
+
+    const sb = mustAuthedSupabase(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const { data, error } = await sb.rpc('auto_assign_resource_for_booking', {
+      p_booking_id: bookingId,
+      p_party_size_hint: partySizeSafe,
+    })
+    if (error) {
+      const msg = primaryRpcErrorMessage(error) || safeErrorMessage(error)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'member_only' || msg === 'not_authorized') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg === 'resource_management_not_enabled' || msg === 'vertical_does_not_support_table_assignment') {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      throw error
+    }
+
+    res.status(200).json({ success: true, resourceId: (data as string | null) ?? null })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+  }
+})
 
 router.post('/business/approve', async (req: Request, res: Response) => {
   try {
