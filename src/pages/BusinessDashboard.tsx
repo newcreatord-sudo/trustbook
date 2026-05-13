@@ -970,16 +970,19 @@ export default function BusinessDashboard() {
   const doNoShow = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    const now = new Date().toISOString()
     const nextDepositStatus: DepositStatus = b.deposit_status === 'paid' ? 'forfeited' : b.deposit_status
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status: 'no_show', no_show_at: now, deposit_status: nextDepositStatus })
-      .eq('id', b.id)
+    const { data, error } = await supabase.rpc('transition_booking_state', {
+      p_booking_id: b.id,
+      p_next_status: 'no_show',
+      p_next_deposit_status: nextDepositStatus,
+      p_require_current_status: 'confirmed',
+    })
     if (error) throw error
-    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, status: 'no_show', no_show_at: now, deposit_status: nextDepositStatus } : x)))
+    const next = safeParseBookingRow(data)
+    if (!next) throw new Error('Risposta non valida')
+    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...next } : x)))
 
-    if (nextDepositStatus === 'forfeited' && accessToken) {
+    if (next.deposit_status === 'forfeited' && accessToken) {
       void fetch('/api/stripe/deposit/forfeit-by-business', {
         method: 'POST',
         headers: {
@@ -1011,10 +1014,15 @@ export default function BusinessDashboard() {
   const doComplete = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    const now = new Date().toISOString()
-    const { error } = await supabase.from('bookings').update({ status: 'completed', completed_at: now }).eq('id', b.id)
+    const { data, error } = await supabase.rpc('transition_booking_state', {
+      p_booking_id: b.id,
+      p_next_status: 'completed',
+      p_require_current_status: 'confirmed',
+    })
     if (error) throw error
-    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, status: 'completed', completed_at: now } : x)))
+    const next = safeParseBookingRow(data)
+    if (!next) throw new Error('Risposta non valida')
+    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...next } : x)))
 
     // Reliability is now fully handled by the DB trigger on update!
     const { data: newRel } = await supabase

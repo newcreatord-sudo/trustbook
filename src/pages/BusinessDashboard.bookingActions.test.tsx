@@ -288,7 +288,7 @@ describe('BusinessDashboard booking actions', () => {
     })
     subscriptionMocks.fetchBusinessSubscription.mockResolvedValue(null)
     subscriptionMocks.fetchSubscriptionPlans.mockResolvedValue([])
-    rpcMock.mockImplementation(async (fnName: string) => {
+    rpcMock.mockImplementation(async (fnName: string, params?: Record<string, unknown>) => {
       if (fnName === 'business_dashboard_booking_kpis') {
         return { data: kpisPayload, error: null }
       }
@@ -304,6 +304,20 @@ describe('BusinessDashboard booking actions', () => {
           rejection_reason: null,
         }
         return { data: row, error: null }
+      }
+      if (fnName === 'transition_booking_state') {
+        const base = bookingOverride.current ?? makePendingBooking()
+        const nextStatus = params?.p_next_status
+        if (nextStatus === 'no_show') {
+          return {
+            data: { ...base, status: 'no_show' as const, deposit_status: (params?.p_next_deposit_status as string) ?? base.deposit_status, no_show_at: new Date().toISOString() },
+            error: null,
+          }
+        }
+        if (nextStatus === 'completed') {
+          return { data: { ...base, status: 'completed' as const, completed_at: new Date().toISOString() }, error: null }
+        }
+        return { data: base, error: null }
       }
       return { data: null, error: null }
     })
