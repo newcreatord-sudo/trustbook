@@ -28,8 +28,6 @@ import { requestIdMiddleware } from './middleware/requestId.js'
 import { rateLimitMiddleware } from './middleware/rateLimit.js'
 import { initBackendObservability, captureBackendException, logEvent } from './lib/observability.js'
 
-void initBackendObservability()
-
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
 path.dirname(__filename)
@@ -37,6 +35,8 @@ path.dirname(__filename)
 // load env
 dotenv.config({ path: '.env.local' })
 dotenv.config({ path: '.env' })
+
+void initBackendObservability()
 
 const app: express.Application = express()
 
