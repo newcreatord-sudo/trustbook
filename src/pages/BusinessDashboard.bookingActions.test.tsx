@@ -271,6 +271,29 @@ describe('BusinessDashboard booking actions', () => {
     vi.stubGlobal('fetch', fetchMock)
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/api/bookings/business/approve')) {
+        const row = { ...makePendingBooking(), status: 'confirmed' as const, confirmed_at: new Date().toISOString() }
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, booking: row }) })
+      }
+      if (url.includes('/api/bookings/business/reject')) {
+        const row = {
+          ...makePendingBooking(),
+          status: 'rejected' as const,
+          rejected_by_user_id: 'owner-1',
+          rejection_reason: null,
+        }
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, booking: row }) })
+      }
+      if (url.includes('/api/bookings/business/mark-no-show')) {
+        const base = bookingOverride.current ?? makeConfirmedBooking()
+        const row = { ...base, status: 'no_show' as const, no_show_at: new Date().toISOString(), deposit_status: base.deposit_status }
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, booking: row }) })
+      }
+      if (url.includes('/api/bookings/business/mark-completed')) {
+        const base = bookingOverride.current ?? makeConfirmedBooking()
+        const row = { ...base, status: 'completed' as const, completed_at: new Date().toISOString() }
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, booking: row }) })
+      }
       if (url.includes('cancel-by-business')) {
         return Promise.resolve({
           ok: true,
@@ -291,19 +314,6 @@ describe('BusinessDashboard booking actions', () => {
     rpcMock.mockImplementation(async (fnName: string, params?: Record<string, unknown>) => {
       if (fnName === 'business_dashboard_booking_kpis') {
         return { data: kpisPayload, error: null }
-      }
-      if (fnName === 'business_approve_pending_booking') {
-        const row = { ...makePendingBooking(), status: 'confirmed' as const, confirmed_at: new Date().toISOString() }
-        return { data: row, error: null }
-      }
-      if (fnName === 'business_reject_pending_booking') {
-        const row = {
-          ...makePendingBooking(),
-          status: 'rejected' as const,
-          rejected_by_user_id: 'owner-1',
-          rejection_reason: null,
-        }
-        return { data: row, error: null }
       }
       if (fnName === 'transition_booking_state') {
         const base = bookingOverride.current ?? makePendingBooking()
@@ -333,7 +343,7 @@ describe('BusinessDashboard booking actions', () => {
     vi.unstubAllGlobals()
   })
 
-  it('Approva chiama RPC business_approve_pending_booking', async () => {
+  it('Approva chiama POST /api/bookings/business/approve', async () => {
     render(
       <MemoryRouter initialEntries={['/?tab=prenotazioni']}>
         <BusinessDashboard />
@@ -346,15 +356,22 @@ describe('BusinessDashboard booking actions', () => {
     fireEvent.click(approveButtons[0]!)
 
     await waitFor(() => {
-      expect(rpcMock).toHaveBeenCalledWith(
-        'business_approve_pending_booking',
-        expect.objectContaining({ p_booking_id: 'bk-pend-1' }),
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/bookings/business/approve',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer token',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({ bookingId: 'bk-pend-1' }),
+        }),
       )
     })
     await screen.findByText(/Approvata/i)
   })
 
-  it('Rifiuta dopo conferma chiama business_reject_pending_booking', async () => {
+  it('Rifiuta dopo conferma chiama POST /api/bookings/business/reject', async () => {
     render(
       <MemoryRouter initialEntries={['/?tab=prenotazioni']}>
         <BusinessDashboard />
@@ -371,9 +388,15 @@ describe('BusinessDashboard booking actions', () => {
     fireEvent.click(confirmReject)
 
     await waitFor(() => {
-      expect(rpcMock).toHaveBeenCalledWith(
-        'business_reject_pending_booking',
-        expect.objectContaining({ p_booking_id: 'bk-pend-1' }),
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/bookings/business/reject',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer token',
+            'Content-Type': 'application/json',
+          }),
+        }),
       )
     })
   })

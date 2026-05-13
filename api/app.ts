@@ -24,6 +24,7 @@ import opsRoutes from './routes/ops.js'
 import seoRoutes from './routes/seo.js'
 import pushRoutes from './routes/push.js'
 import aiAgentRoutes from './routes/aiAgent.js'
+import bookingRoutes from './routes/bookings.js'
 import { requestIdMiddleware } from './middleware/requestId.js'
 import { rateLimitMiddleware } from './middleware/rateLimit.js'
 import { initBackendObservability, captureBackendException, logEvent } from './lib/observability.js'
@@ -153,6 +154,7 @@ app.use('/api/ai-tools', aiToolsRoutes)
 app.use('/api/monetization', monetizationRoutes)
 app.use('/api/ops/review-reports', reviewReportsOpsRoutes)
 app.use('/api/ops', opsRoutes)
+app.use('/api/bookings', bookingRoutes)
 app.use('/api/seo', seoRoutes)
 app.use('/api/push', pushRoutes)
 app.use('/api/ai', aiAgentRoutes)

@@ -789,21 +789,37 @@ export default function BusinessDashboard() {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
     const reason = (rejectReason[b.id] ?? '').trim() || null
-    const { data, error } = await supabase.rpc('business_reject_pending_booking', {
-      p_booking_id: b.id,
-      p_rejection_reason: reason,
+    if (!accessToken) throw new Error('Sessione non valida')
+
+    const res = await fetch('/api/bookings/business/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ bookingId: b.id, reason }),
     })
-    if (error) throw error
-    setBookings((prev) => prev.map((x) => (x.id === b.id ? (data as BookingRow) : x)))
+    const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: BookingRow; error?: string } | null
+    if (!res.ok || !json?.success || !json.booking) {
+      throw new Error(json?.error || 'Errore rifiuto')
+    }
+    setBookings((prev) => prev.map((x) => (x.id === b.id ? json.booking! : x)))
   }
 
   const doApprove = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    const { data, error } = await supabase.rpc('business_approve_pending_booking', { p_booking_id: b.id })
-    if (error) throw error
-    setBookings((prev) => prev.map((x) => (x.id === b.id ? (data as BookingRow) : x)))
-    const row = data as BookingRow
+    if (!accessToken) throw new Error('Sessione non valida')
+
+    const res = await fetch('/api/bookings/business/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ bookingId: b.id }),
+    })
+    const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: BookingRow; error?: string } | null
+    if (!res.ok || !json?.success || !json.booking) {
+      throw new Error(json?.error || 'Errore approvazione')
+    }
+
+    setBookings((prev) => prev.map((x) => (x.id === b.id ? json.booking! : x)))
+    const row = json.booking
     pushFlash(
       'success',
       row.status === 'requires_deposit' ? 'Approvata: in attesa deposito cliente.' : 'Approvata.',
@@ -970,28 +986,18 @@ export default function BusinessDashboard() {
   const doNoShow = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    const nextDepositStatus: DepositStatus = b.deposit_status === 'paid' ? 'forfeited' : b.deposit_status
-    const { data, error } = await supabase.rpc('transition_booking_state', {
-      p_booking_id: b.id,
-      p_next_status: 'no_show',
-      p_next_deposit_status: nextDepositStatus,
-      p_require_current_status: 'confirmed',
-    })
-    if (error) throw error
-    const next = safeParseBookingRow(data)
-    if (!next) throw new Error('Risposta non valida')
-    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...next } : x)))
+    if (!accessToken) throw new Error('Sessione non valida')
 
-    if (next.deposit_status === 'forfeited' && accessToken) {
-      void fetch('/api/stripe/deposit/forfeit-by-business', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ bookingId: b.id }),
-      })
+    const res = await fetch('/api/bookings/business/mark-no-show', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ bookingId: b.id, forfeitDeposit: true }),
+    })
+    const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: BookingRow; error?: string } | null
+    if (!res.ok || !json?.success || !json.booking) {
+      throw new Error(json?.error || 'Errore no-show')
     }
+    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...(json.booking as BookingRow) } : x)))
 
     // Reliability is now fully handled by the DB trigger on update!
     const { data: newRel } = await supabase
@@ -1014,15 +1020,18 @@ export default function BusinessDashboard() {
   const doComplete = async (bookingId: string) => {
     const b = bookings.find((x) => x.id === bookingId)
     if (!b) return
-    const { data, error } = await supabase.rpc('transition_booking_state', {
-      p_booking_id: b.id,
-      p_next_status: 'completed',
-      p_require_current_status: 'confirmed',
+    if (!accessToken) throw new Error('Sessione non valida')
+
+    const res = await fetch('/api/bookings/business/mark-completed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ bookingId: b.id }),
     })
-    if (error) throw error
-    const next = safeParseBookingRow(data)
-    if (!next) throw new Error('Risposta non valida')
-    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...next } : x)))
+    const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: BookingRow; error?: string } | null
+    if (!res.ok || !json?.success || !json.booking) {
+      throw new Error(json?.error || 'Errore completata')
+    }
+    setBookings((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...(json.booking as BookingRow) } : x)))
 
     // Reliability is now fully handled by the DB trigger on update!
     const { data: newRel } = await supabase
