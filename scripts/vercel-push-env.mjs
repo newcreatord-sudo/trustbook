@@ -36,7 +36,11 @@ const tokenArg = readArg('token') ?? null
 const keysArg = parseKeys(readArg('keys'))
 
 const raw = readFileSync(resolve(process.cwd(), envFile), 'utf8')
-const parsed = dotenv.parse(raw)
+const local = parseFileIfExists(`${envFile}.local`)
+const parsed = {
+  ...dotenv.parse(raw),
+  ...(local?.parsed ?? {}),
+}
 
 const paymentsEnabled = String(parsed.PAYMENTS_ENABLED ?? '').trim() === '1'
 

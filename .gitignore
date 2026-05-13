@@ -42,9 +42,3 @@ supabase/.temp/
 
 # Local artifacts (may contain cert chain / audit exports)
 artifacts/
-
-.vercel
-.env*.local
-
-.vercel
-.env*.local
