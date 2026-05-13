@@ -1,4 +1,6 @@
-create or replace view public.external_business_listings_public
+drop view if exists public.external_business_listings_public;
+
+create view public.external_business_listings_public
 with (security_barrier = true)
 as
 select
@@ -53,4 +55,3 @@ where listing_status <> 'blocked' and country_code = 'IT';
 
 revoke all on table public.external_business_listings from anon, authenticated;
 grant select on public.external_business_listings_public to anon, authenticated;
-
