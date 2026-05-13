@@ -32,6 +32,14 @@ function readBookingId(req: Request): string | null {
   return bookingId ? bookingId : null
 }
 
+function readIsoDate(req: Request, key: string): string | null {
+  const raw = String((req.body as Record<string, unknown> | null | undefined)?.[key] ?? '').trim()
+  if (!raw) return null
+  const d = new Date(raw)
+  if (!Number.isFinite(d.getTime())) return null
+  return d.toISOString()
+}
+
 router.post('/business/approve', async (req: Request, res: Response) => {
   try {
     const bookingId = readBookingId(req)
@@ -101,6 +109,196 @@ router.post('/business/reject', async (req: Request, res: Response) => {
         return
       }
       if (msg.endsWith('_not_allowed_for_status') || msg === 'invalid_transition_state') {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      throw error
+    }
+
+    res.status(200).json({ success: true, booking: data })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+  }
+})
+
+router.post('/customer/propose-reschedule', async (req: Request, res: Response) => {
+  try {
+    const bookingId = readBookingId(req)
+    if (!bookingId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId' })
+      return
+    }
+
+    const newStartAt = readIsoDate(req, 'newStartAt')
+    const newEndAt = readIsoDate(req, 'newEndAt')
+    if (!newStartAt || !newEndAt) {
+      res.status(400).json({ success: false, error: 'Missing newStartAt/newEndAt' })
+      return
+    }
+    if (new Date(newStartAt).getTime() >= new Date(newEndAt).getTime()) {
+      res.status(400).json({ success: false, error: 'Invalid time interval' })
+      return
+    }
+
+    const message = String(req.body?.message ?? '').trim() || null
+
+    const sb = mustAuthedSupabase(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const { data, error } = await sb.rpc('customer_propose_booking_reschedule', {
+      p_booking_id: bookingId,
+      p_new_start_at: newStartAt,
+      p_new_end_at: newEndAt,
+      p_message: message,
+    })
+
+    if (error) {
+      const msg = primaryRpcErrorMessage(error) || safeErrorMessage(error)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'not_authorized' || msg === 'member_only') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg.endsWith('_not_allowed_for_status') || msg === 'proposal_not_pending' || msg === 'invalid_booking_interval') {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      throw error
+    }
+
+    res.status(200).json({ success: true, booking: data })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+  }
+})
+
+router.post('/business/propose-reschedule', async (req: Request, res: Response) => {
+  try {
+    const bookingId = readBookingId(req)
+    if (!bookingId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId' })
+      return
+    }
+
+    const newStartAt = readIsoDate(req, 'newStartAt')
+    const newEndAt = readIsoDate(req, 'newEndAt')
+    if (!newStartAt || !newEndAt) {
+      res.status(400).json({ success: false, error: 'Missing newStartAt/newEndAt' })
+      return
+    }
+    if (new Date(newStartAt).getTime() >= new Date(newEndAt).getTime()) {
+      res.status(400).json({ success: false, error: 'Invalid time interval' })
+      return
+    }
+
+    const message = String(req.body?.message ?? '').trim() || null
+
+    const sb = mustAuthedSupabase(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const { data, error } = await sb.rpc('business_propose_booking_reschedule', {
+      p_booking_id: bookingId,
+      p_new_start_at: newStartAt,
+      p_new_end_at: newEndAt,
+      p_message: message,
+    })
+
+    if (error) {
+      const msg = primaryRpcErrorMessage(error) || safeErrorMessage(error)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'member_only' || msg === 'not_authorized') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg.endsWith('_not_allowed_for_status') || msg === 'proposal_not_pending') {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      throw error
+    }
+
+    res.status(200).json({ success: true, booking: data })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+  }
+})
+
+router.post('/accept-time-proposal', async (req: Request, res: Response) => {
+  try {
+    const bookingId = readBookingId(req)
+    if (!bookingId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId' })
+      return
+    }
+
+    const sb = mustAuthedSupabase(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const { data, error } = await sb.rpc('accept_booking_time_proposal', { p_booking_id: bookingId })
+    if (error) {
+      const msg = primaryRpcErrorMessage(error) || safeErrorMessage(error)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'not_authorized' || msg === 'member_only') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg === 'proposal_not_pending' || msg === 'proposal_actor_mismatch') {
+        res.status(409).json({ success: false, error: msg })
+        return
+      }
+      throw error
+    }
+
+    res.status(200).json({ success: true, booking: data })
+  } catch (e: unknown) {
+    res.status(502).json({ success: false, error: safeErrorMessage(e) })
+  }
+})
+
+router.post('/reject-time-proposal', async (req: Request, res: Response) => {
+  try {
+    const bookingId = readBookingId(req)
+    if (!bookingId) {
+      res.status(400).json({ success: false, error: 'Missing bookingId' })
+      return
+    }
+
+    const sb = mustAuthedSupabase(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const { data, error } = await sb.rpc('reject_booking_time_proposal', { p_booking_id: bookingId })
+    if (error) {
+      const msg = primaryRpcErrorMessage(error) || safeErrorMessage(error)
+      if (msg === 'not_authenticated') {
+        res.status(401).json({ success: false, error: 'Unauthorized' })
+        return
+      }
+      if (msg === 'not_authorized' || msg === 'member_only') {
+        res.status(403).json({ success: false, error: 'Forbidden' })
+        return
+      }
+      if (msg === 'proposal_not_pending' || msg === 'proposal_actor_mismatch') {
         res.status(409).json({ success: false, error: msg })
         return
       }
@@ -246,4 +444,3 @@ router.post('/business/mark-completed', async (req: Request, res: Response) => {
 })
 
 export default router
-

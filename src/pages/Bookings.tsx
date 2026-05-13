@@ -463,12 +463,16 @@ export default function Bookings() {
                               setError(null)
                               ;(async () => {
                                 try {
-                                  const { data, error } = await supabase.rpc('accept_booking_time_proposal', {
-                                    p_booking_id: b.id,
+                                  if (!accessToken) throw new Error('Sessione non valida')
+                                  const res = await fetch('/api/bookings/accept-time-proposal', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                                    body: JSON.stringify({ bookingId: b.id }),
                                   })
-                                  if (error) throw error
+                                  const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: unknown; error?: string } | null
+                                  if (!res.ok || !json?.success || !json.booking) throw new Error(json?.error || 'Errore')
                                   setRows((prev) =>
-                                    prev.map((x) => (x.id === b.id ? mergeBookingKeepBusiness(x, data) : x)),
+                                    prev.map((x) => (x.id === b.id ? mergeBookingKeepBusiness(x, json.booking) : x)),
                                   )
                                 } catch (e: unknown) {
                                   setError(errorMessage(e, 'Errore accettazione proposta.'))
@@ -487,12 +491,16 @@ export default function Bookings() {
                               setError(null)
                               ;(async () => {
                                 try {
-                                  const { data, error } = await supabase.rpc('reject_booking_time_proposal', {
-                                    p_booking_id: b.id,
+                                  if (!accessToken) throw new Error('Sessione non valida')
+                                  const res = await fetch('/api/bookings/reject-time-proposal', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                                    body: JSON.stringify({ bookingId: b.id }),
                                   })
-                                  if (error) throw error
+                                  const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: unknown; error?: string } | null
+                                  if (!res.ok || !json?.success || !json.booking) throw new Error(json?.error || 'Errore')
                                   setRows((prev) =>
-                                    prev.map((x) => (x.id === b.id ? mergeBookingKeepBusiness(x, data) : x)),
+                                    prev.map((x) => (x.id === b.id ? mergeBookingKeepBusiness(x, json.booking) : x)),
                                   )
                                 } catch (e: unknown) {
                                   setError(errorMessage(e, 'Errore rifiuto proposta.'))
@@ -792,15 +800,21 @@ export default function Bookings() {
                           setBusyId(b.id)
                           ;(async () => {
                             try {
-                              const { data, error } = await supabase.rpc('customer_propose_booking_reschedule', {
-                                p_booking_id: b.id,
-                                p_new_start_at: start.toISOString(),
-                                p_new_end_at: end.toISOString(),
-                                p_message: (changeDraft[b.id]?.message ?? '').trim() || null,
+                              if (!accessToken) throw new Error('Sessione non valida')
+                              const res = await fetch('/api/bookings/customer/propose-reschedule', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                                body: JSON.stringify({
+                                  bookingId: b.id,
+                                  newStartAt: start.toISOString(),
+                                  newEndAt: end.toISOString(),
+                                  message: (changeDraft[b.id]?.message ?? '').trim() || null,
+                                }),
                               })
-                              if (error) throw error
+                              const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: unknown; error?: string } | null
+                              if (!res.ok || !json?.success || !json.booking) throw new Error(json?.error || 'Errore')
                               setRows((prev) =>
-                                prev.map((x) => (x.id === b.id ? mergeBookingKeepBusiness(x, data) : x)),
+                                prev.map((x) => (x.id === b.id ? mergeBookingKeepBusiness(x, json.booking) : x)),
                               )
                               setChangeDraft((m) => ({ ...m, [b.id]: { open: false, start: '', message: '' } }))
                             } catch (e: unknown) {

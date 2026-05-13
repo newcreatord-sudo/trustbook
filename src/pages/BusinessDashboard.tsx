@@ -1993,11 +1993,15 @@ export default function BusinessDashboard() {
                                 setError(null)
                                 void runBookingExclusive(async () => {
                                   try {
-                                    const { data, error } = await supabase.rpc('accept_booking_time_proposal', {
-                                      p_booking_id: b.id,
+                                    if (!accessToken) throw new Error('Sessione non valida')
+                                    const res = await fetch('/api/bookings/accept-time-proposal', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                                      body: JSON.stringify({ bookingId: b.id }),
                                     })
-                                    if (error) throw error
-                                    const row = safeParseBookingRow(data)
+                                    const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: unknown; error?: string } | null
+                                    if (!res.ok || !json?.success || !json.booking) throw new Error(json?.error || 'Errore')
+                                    const row = safeParseBookingRow(json.booking)
                                     if (row) setBookings((prev) => prev.map((x) => (x.id === b.id ? row : x)))
                                   } catch (e: unknown) {
                                     setError(errorMessage(e, 'Errore accettazione richiesta.'))
@@ -2016,11 +2020,15 @@ export default function BusinessDashboard() {
                                 setError(null)
                                 void runBookingExclusive(async () => {
                                   try {
-                                    const { data, error } = await supabase.rpc('reject_booking_time_proposal', {
-                                      p_booking_id: b.id,
+                                    if (!accessToken) throw new Error('Sessione non valida')
+                                    const res = await fetch('/api/bookings/reject-time-proposal', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                                      body: JSON.stringify({ bookingId: b.id }),
                                     })
-                                    if (error) throw error
-                                    const row = safeParseBookingRow(data)
+                                    const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: unknown; error?: string } | null
+                                    if (!res.ok || !json?.success || !json.booking) throw new Error(json?.error || 'Errore')
+                                    const row = safeParseBookingRow(json.booking)
                                     if (row) setBookings((prev) => prev.map((x) => (x.id === b.id ? row : x)))
                                   } catch (e: unknown) {
                                     setError(errorMessage(e, 'Errore rifiuto richiesta.'))
@@ -2134,14 +2142,20 @@ export default function BusinessDashboard() {
 
                               void runBookingExclusive(async () => {
                                 try {
-                                  const { data, error } = await supabase.rpc('business_propose_booking_reschedule', {
-                                    p_booking_id: b.id,
-                                    p_new_start_at: start.toISOString(),
-                                    p_new_end_at: end.toISOString(),
-                                    p_message: (proposalDraft[b.id]?.message ?? '').trim() || null,
+                                  if (!accessToken) throw new Error('Sessione non valida')
+                                  const res = await fetch('/api/bookings/business/propose-reschedule', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                                    body: JSON.stringify({
+                                      bookingId: b.id,
+                                      newStartAt: start.toISOString(),
+                                      newEndAt: end.toISOString(),
+                                      message: (proposalDraft[b.id]?.message ?? '').trim() || null,
+                                    }),
                                   })
-                                  if (error) throw error
-                                  const row = safeParseBookingRow(data)
+                                  const json = (await res.json().catch(() => null)) as { success?: boolean; booking?: unknown; error?: string } | null
+                                  if (!res.ok || !json?.success || !json.booking) throw new Error(json?.error || 'Errore')
+                                  const row = safeParseBookingRow(json.booking)
                                   if (row) setBookings((prev) => prev.map((x) => (x.id === b.id ? row : x)))
                                 } catch (e: unknown) {
                                   setError(errorMessage(e, 'Errore proposta.'))

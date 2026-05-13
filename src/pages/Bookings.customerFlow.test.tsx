@@ -68,6 +68,24 @@ describe('Bookings customer flow', () => {
             }),
           } as Response
         }
+        if (url.includes('/api/bookings/accept-time-proposal')) {
+          return {
+            ok: true,
+            json: async () => ({ success: true, booking: { id: 'bk-1', status: 'confirmed' } }),
+          } as Response
+        }
+        if (url.includes('/api/bookings/reject-time-proposal')) {
+          return {
+            ok: true,
+            json: async () => ({ success: true, booking: { id: 'bk-1', status: 'confirmed' } }),
+          } as Response
+        }
+        if (url.includes('/api/bookings/customer/propose-reschedule')) {
+          return {
+            ok: true,
+            json: async () => ({ success: true, booking: { id: 'bk-1', status: 'change_proposed' } }),
+          } as Response
+        }
         return { ok: false, json: async () => ({ success: false }) } as Response
       }),
     )
@@ -174,6 +192,74 @@ describe('Bookings customer flow', () => {
     })
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^Cancella$/i })).toBeNull()
+    })
+  })
+
+  test('accetta una proposta orario attività via api', async () => {
+    fromMock.mockImplementationOnce((table: string) => {
+      if (table !== 'bookings') throw new Error(`Unexpected table ${table}`)
+      return {
+        select: () => ({
+          eq: () => ({
+            order: () => ({
+              limit: () =>
+                thenableResult([
+                  {
+                    id: 'bk-1',
+                    customer_user_id: 'customer-1',
+                    business_id: 'biz-1',
+                    service_id: 'svc-1',
+                    start_at: '2026-06-02T10:00:00.000Z',
+                    end_at: '2026-06-02T11:00:00.000Z',
+                    status: 'change_proposed',
+                    deposit_status: 'paid',
+                    deposit_amount_cents: 1500,
+                    created_at: '2026-01-01T00:00:00.000Z',
+                    updated_at: '2026-01-01T00:00:00.000Z',
+                    confirmed_at: null,
+                    cancelled_at: null,
+                    completed_at: null,
+                    no_show_at: null,
+                    approved_by_user_id: null,
+                    rejected_by_user_id: null,
+                    rejection_reason: null,
+                    proposed_start_at: '2026-06-02T12:00:00.000Z',
+                    proposed_end_at: '2026-06-02T13:00:00.000Z',
+                    proposed_by_role: 'attivita',
+                    proposal_message: null,
+                    proposal_created_at: null,
+                    businesses: { name: 'Barberia Test', cancellation_window_min: 120, booking_lead_time_min: 0 },
+                  },
+                ]),
+            }),
+          }),
+          single: async () => ({ data: null, error: null }),
+        }),
+      }
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/prenotazioni']}>
+        <Routes>
+          <Route path="/prenotazioni" element={<Bookings />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText(/Barberia Test/i)
+    fireEvent.click(screen.getByRole('button', { name: /^Accetta$/i }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/bookings/accept-time-proposal',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer token-customer',
+            'Content-Type': 'application/json',
+          }),
+        }),
+      )
     })
   })
 })
