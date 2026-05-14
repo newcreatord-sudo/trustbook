@@ -60,6 +60,9 @@ export async function dispatchPendingEmails(args: {
   if (!email.canSend) return { sent: 0, skipped: true, email }
 
   const limit = Math.max(1, Math.min(50, Math.floor(Number(args.limit) || 20)))
+  const concurrencyRaw = String(process.env.EMAIL_DISPATCH_CONCURRENCY ?? '').trim()
+  const concurrencyNum = Number(concurrencyRaw)
+  const concurrency = Math.max(1, Math.min(10, Number.isFinite(concurrencyNum) ? concurrencyNum : 5))
   const nowIso = new Date().toISOString()
   let q = args.sbAdmin
     .from('notifications')
@@ -78,45 +81,83 @@ export async function dispatchPendingEmails(args: {
 
   const rows = ((data as NotificationRow[]) ?? []).filter((r) => r && r.id && r.recipient_user_id)
   let sent = 0
-  for (const n of rows) {
-    const { data: u } = await args.sbAdmin.auth.admin.getUserById(n.recipient_user_id)
-    const email = (u.user?.email ?? '').trim()
-    if (!email) {
-      await args.sbAdmin.from('notifications').update({ email_sent_at: new Date().toISOString() }).eq('id', n.id)
-      continue
-    }
+  const replyTo = String(process.env.EMAIL_REPLY_TO ?? '').trim() || undefined
+  for (let i = 0; i < rows.length; i += concurrency) {
+    const chunk = rows.slice(i, i + concurrency)
+    const results = await Promise.all(
+      chunk.map(async (n) => {
+        try {
+          const { data: u } = await args.sbAdmin.auth.admin.getUserById(n.recipient_user_id)
+          const to = (u.user?.email ?? '').trim()
+          if (!to) {
+            await args.sbAdmin
+              .from('notifications')
+              .update({ email_sent_at: new Date().toISOString() })
+              .eq('id', n.id)
+              .is('email_sent_at', null)
+            return false
+          }
 
-    const { data: prefRow } = await args.sbAdmin
-      .from('user_preferences')
-      .select(
-        'channel_email, notif_booking, notif_deposit, notif_messages, notif_marketing, notif_reminders, notif_owner_alerts',
-      )
-      .eq('user_id', n.recipient_user_id)
-      .maybeSingle()
-    if (prefRow && prefRow.channel_email === false) {
-      await args.sbAdmin.from('notifications').update({ email_sent_at: new Date().toISOString() }).eq('id', n.id)
-      continue
-    }
-    const prefs = prefRow as UserPrefsEmailRow | null
-    if (!notificationEmailCategoryAllowed(n.kind, prefs)) {
-      await args.sbAdmin.from('notifications').update({ email_sent_at: new Date().toISOString() }).eq('id', n.id)
-      continue
-    }
+          const { data: prefRow } = await args.sbAdmin
+            .from('user_preferences')
+            .select(
+              'channel_email, notif_booking, notif_deposit, notif_messages, notif_marketing, notif_reminders, notif_owner_alerts',
+            )
+            .eq('user_id', n.recipient_user_id)
+            .maybeSingle()
+          if (prefRow && prefRow.channel_email === false) {
+            await args.sbAdmin
+              .from('notifications')
+              .update({ email_sent_at: new Date().toISOString() })
+              .eq('id', n.id)
+              .is('email_sent_at', null)
+            return false
+          }
+          const prefs = prefRow as UserPrefsEmailRow | null
+          if (!notificationEmailCategoryAllowed(n.kind, prefs)) {
+            await args.sbAdmin
+              .from('notifications')
+              .update({ email_sent_at: new Date().toISOString() })
+              .eq('id', n.id)
+              .is('email_sent_at', null)
+            return false
+          }
 
-    const link = n.link ? `${n.link}` : ''
-    const text = [n.title, n.body ?? '', link].filter(Boolean).join('\n\n')
-    const html = `
-        <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1.5">
-          <div style="font-size:16px; font-weight:700">${escapeHtml(n.title)}</div>
-          ${n.body ? `<div style="margin-top:8px; font-size:14px">${escapeHtml(n.body)}</div>` : ''}
-          ${link ? `<div style="margin-top:12px; font-size:13px"><a href="${escapeAttr(link)}">Apri TrustBook</a></div>` : ''}
-          <div style="margin-top:14px; font-size:12px; color:#6b7280">${escapeHtml(new Date(n.created_at).toLocaleString('it-IT'))}</div>
-        </div>
-      `.trim()
+          const link = n.link ? `${n.link}` : ''
+          const text = [n.title, n.body ?? '', link].filter(Boolean).join('\n\n')
+          const html = `
+              <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height:1.5">
+                <div style="font-size:16px; font-weight:700">${escapeHtml(n.title)}</div>
+                ${n.body ? `<div style="margin-top:8px; font-size:14px">${escapeHtml(n.body)}</div>` : ''}
+                ${link ? `<div style="margin-top:12px; font-size:13px"><a href="${escapeAttr(link)}">Apri TrustBook</a></div>` : ''}
+                <div style="margin-top:14px; font-size:12px; color:#6b7280">${escapeHtml(new Date(n.created_at).toLocaleString('it-IT'))}</div>
+              </div>
+            `.trim()
 
-    await sendEmail({ to: email, subject: n.title, text, html })
-    await args.sbAdmin.from('notifications').update({ email_sent_at: new Date().toISOString() }).eq('id', n.id)
-    sent += 1
+          await sendEmail({
+            to,
+            subject: n.title,
+            text,
+            html,
+            replyTo,
+            headers: {
+              'X-TrustBook-Notification-Id': n.id,
+              'X-TrustBook-Notification-Kind': String(n.kind ?? ''),
+            },
+          })
+
+          await args.sbAdmin
+            .from('notifications')
+            .update({ email_sent_at: new Date().toISOString() })
+            .eq('id', n.id)
+            .is('email_sent_at', null)
+          return true
+        } catch {
+          return false
+        }
+      }),
+    )
+    sent += results.filter(Boolean).length
   }
 
   return { sent, skipped: false, email }

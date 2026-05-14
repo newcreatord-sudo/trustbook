@@ -51,6 +51,8 @@ export async function sendEmail(params: {
   subject: string
   text: string
   html?: string
+  replyTo?: string
+  headers?: Record<string, string>
 }): Promise<void> {
   const provider = (env('EMAIL_PROVIDER') ?? 'smtp').toLowerCase()
   const from = env('EMAIL_FROM') ?? env('SMTP_FROM')
@@ -69,6 +71,8 @@ export async function sendEmail(params: {
         subject: params.subject,
         text: params.text,
         html: params.html,
+        reply_to: params.replyTo,
+        headers: params.headers,
       }),
     })
     if (!r.ok) {
@@ -102,5 +106,7 @@ export async function sendEmail(params: {
     subject: params.subject,
     text: params.text,
     html: params.html,
+    replyTo: params.replyTo,
+    headers: params.headers,
   })
 }
