@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,svg,woff2}'],
-          navigateFallback: '/offline.html',
+          navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api\//, /^\/auth\//],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
