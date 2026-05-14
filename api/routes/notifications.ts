@@ -53,19 +53,26 @@ export async function runDueNotificationJobs(args: { sbAdmin: SupabaseClient; li
 export async function dispatchPendingEmails(args: {
   sbAdmin: SupabaseClient
   limit: number
+  recipientUserId?: string | null
+  kind?: string | null
 }): Promise<{ sent: number; skipped: boolean; email: EmailConfigStatus }> {
   const email = emailConfigStatus()
   if (!email.canSend) return { sent: 0, skipped: true, email }
 
   const limit = Math.max(1, Math.min(50, Math.floor(Number(args.limit) || 20)))
   const nowIso = new Date().toISOString()
-  const { data, error } = await args.sbAdmin
+  let q = args.sbAdmin
     .from('notifications')
     .select('id,recipient_user_id,title,body,link,created_at,email_sent_at,kind,deliver_at')
     .is('email_sent_at', null)
     .or(`deliver_at.is.null,deliver_at.lte.${nowIso}`)
     .order('created_at', { ascending: true })
     .limit(limit)
+  const recipientUserId = String(args.recipientUserId ?? '').trim()
+  if (recipientUserId) q = q.eq('recipient_user_id', recipientUserId)
+  const kind = String(args.kind ?? '').trim()
+  if (kind) q = q.eq('kind', kind)
+  const { data, error } = await q
 
   if (error) throw new Error(error.message)
 
@@ -150,7 +157,9 @@ router.post('/dispatch', async (req: Request, res: Response) => {
     })
 
     const limit = Math.max(1, Math.min(50, Math.floor(Number(req.body?.limit ?? 20) || 20)))
-    const out = await dispatchPendingEmails({ sbAdmin, limit })
+    const recipientUserId = typeof req.body?.recipientUserId === 'string' ? req.body.recipientUserId : null
+    const kind = typeof req.body?.kind === 'string' ? req.body.kind : null
+    const out = await dispatchPendingEmails({ sbAdmin, limit, recipientUserId, kind })
     res.status(200).json({ success: true, ...out })
   } catch (e: unknown) {
     res.status(502).json({ success: false, error: e instanceof Error ? e.message : 'Service error' })
