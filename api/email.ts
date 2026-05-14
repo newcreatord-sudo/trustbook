@@ -21,12 +21,29 @@ function env(name: string): string | null {
 }
 
 export function canSendEmail(): boolean {
-  const provider = (env('EMAIL_PROVIDER') ?? 'smtp').toLowerCase()
+  return emailConfigStatus().canSend
+}
+
+export type EmailConfigStatus = {
+  provider: 'smtp' | 'resend'
+  hasFrom: boolean
+  hasResendApiKey: boolean
+  hasSmtpHost: boolean
+  hasSmtpPort: boolean
+  canSend: boolean
+}
+
+export function emailConfigStatus(): EmailConfigStatus {
+  const providerRaw = (env('EMAIL_PROVIDER') ?? 'smtp').toLowerCase()
+  const provider: 'smtp' | 'resend' = providerRaw === 'resend' ? 'resend' : 'smtp'
   const from = env('EMAIL_FROM') ?? env('SMTP_FROM')
-  if (provider === 'resend') {
-    return Boolean(env('RESEND_API_KEY') && from)
-  }
-  return Boolean(env('SMTP_HOST') && env('SMTP_PORT') && from)
+  const hasFrom = Boolean(from)
+  const hasResendApiKey = Boolean(env('RESEND_API_KEY'))
+  const hasSmtpHost = Boolean(env('SMTP_HOST'))
+  const hasSmtpPort = Boolean(env('SMTP_PORT'))
+  const canSend =
+    provider === 'resend' ? Boolean(hasFrom && hasResendApiKey) : Boolean(hasFrom && hasSmtpHost && hasSmtpPort)
+  return { provider, hasFrom, hasResendApiKey, hasSmtpHost, hasSmtpPort, canSend }
 }
 
 export async function sendEmail(params: {

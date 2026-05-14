@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { canSendEmail, sendEmail } from '../email.js'
+import { emailConfigStatus, sendEmail, type EmailConfigStatus } from '../email.js'
 import { readEnv, readEnvAny } from '../lib/env.js'
 import { timingSafeTokenEquals } from '../lib/security.js'
 
@@ -50,8 +50,12 @@ export async function runDueNotificationJobs(args: { sbAdmin: SupabaseClient; li
   return Number(data ?? 0)
 }
 
-export async function dispatchPendingEmails(args: { sbAdmin: SupabaseClient; limit: number }): Promise<{ sent: number; skipped: boolean }> {
-  if (!canSendEmail()) return { sent: 0, skipped: true }
+export async function dispatchPendingEmails(args: {
+  sbAdmin: SupabaseClient
+  limit: number
+}): Promise<{ sent: number; skipped: boolean; email: EmailConfigStatus }> {
+  const email = emailConfigStatus()
+  if (!email.canSend) return { sent: 0, skipped: true, email }
 
   const limit = Math.max(1, Math.min(50, Math.floor(Number(args.limit) || 20)))
   const nowIso = new Date().toISOString()
@@ -108,7 +112,7 @@ export async function dispatchPendingEmails(args: { sbAdmin: SupabaseClient; lim
     sent += 1
   }
 
-  return { sent, skipped: false }
+  return { sent, skipped: false, email }
 }
 
 router.post('/dispatch', async (req: Request, res: Response) => {
