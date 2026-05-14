@@ -125,6 +125,13 @@ router.post('/dispatch', async (req: Request, res: Response) => {
       return
     }
 
+    const dryRun = req.body?.dryRun === true
+    if (dryRun) {
+      const email = emailConfigStatus()
+      res.status(200).json({ success: true, dryRun: true, sent: 0, skipped: !email.canSend, email })
+      return
+    }
+
     const supabaseUrl = readEnvAny(['SUPABASE_URL', 'VITE_SUPABASE_URL'])
     const serviceRoleKey = readEnvAny([
       'SUPABASE_SERVICE_ROLE_KEY',
