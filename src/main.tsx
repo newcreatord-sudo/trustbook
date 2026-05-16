@@ -7,10 +7,12 @@ import AppErrorBoundary from '@/shared/ui/AppErrorBoundary'
 import ToastProvider from '@/shared/ui/ToastProvider'
 import { initObservability } from '@/lib/observability'
 import QueryClientProvider from '@/providers/QueryClientProvider'
+import { initDebranding } from '@/lib/debranding'
 
 // Fire-and-forget: observability init never blocks the first paint.
 // When VITE_SENTRY_DSN / VITE_POSTHOG_KEY are absent, this is a no-op.
 void initObservability()
+void initDebranding()
 
 const boot = document.getElementById('boot')
 if (boot) boot.remove()
