@@ -81,6 +81,13 @@ function parseLimitQuery(q: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+function asDate(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (!s) return null
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null
+}
+
 /** Default director agent id; empty string in API falls back to TrustBook default. */
 function directorAgentIdFromQuery(q: unknown): string {
   if (typeof q !== 'string') return 'trustbook_director_ai'
@@ -515,6 +522,77 @@ router.get('/bookings/payments', async (req: Request, res: Response): Promise<vo
     const { data, error } = await sb.rpc('ai_list_business_booking_payments', {
       p_business_id: businessId,
       p_limit: limit,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    const rows = coerceRpcJsonbArray(data)
+    res.status(200).json({ success: true, rows })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.get('/day-summary', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.query?.businessId)
+    const day = asDate(req.query?.day)
+    if (!businessId || !day) {
+      res.status(400).json({ success: false, error: 'Missing businessId/day' })
+      return
+    }
+    const agentId = directorAgentIdFromQuery(req.query?.agentId)
+
+    const { data, error } = await sb.rpc('ai_get_business_day_summary', {
+      p_business_id: businessId,
+      p_day: day,
+      p_agent_id: agentId,
+    })
+    if (error) throw error
+    res.status(200).json({ success: true, summary: data ?? null })
+  } catch (e: unknown) {
+    routeError(res, e)
+  }
+})
+
+router.get('/slots/bookable', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sb = mustSupabaseUser(req)
+    if (!sb) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+    const { data: u, error: ue } = await sb.auth.getUser()
+    if (ue || !u.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized' })
+      return
+    }
+
+    const businessId = asUuid(req.query?.businessId)
+    const serviceId = asUuid(req.query?.serviceId)
+    const on = asDate(req.query?.on)
+    if (!businessId || !serviceId || !on) {
+      res.status(400).json({ success: false, error: 'Missing businessId/serviceId/on' })
+      return
+    }
+    const staffId = req.query?.staffId ? asUuid(req.query.staffId) : null
+    const agentId = directorAgentIdFromQuery(req.query?.agentId)
+
+    const { data, error } = await sb.rpc('ai_list_bookable_slots_for_service_day', {
+      p_business_id: businessId,
+      p_service_id: serviceId,
+      p_on: on,
+      p_staff_id: staffId,
       p_agent_id: agentId,
     })
     if (error) throw error
