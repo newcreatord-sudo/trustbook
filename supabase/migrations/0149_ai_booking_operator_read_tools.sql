@@ -52,11 +52,16 @@ begin
       'total', count(*),
       'requested', count(*) filter (where b.status = 'requested'),
       'pending_approval', count(*) filter (where b.status = 'pending_approval'),
+      'pending_deposit', count(*) filter (where b.status = 'pending_deposit'),
       'requires_deposit', count(*) filter (where b.status = 'requires_deposit'),
+      'pending_payment_setup', count(*) filter (where b.status = 'pending_payment_setup'),
       'confirmed', count(*) filter (where b.status = 'confirmed'),
+      'rejected', count(*) filter (where b.status = 'rejected'),
       'completed', count(*) filter (where b.status = 'completed'),
       'no_show', count(*) filter (where b.status = 'no_show'),
-      'cancelled', count(*) filter (where b.status = 'cancelled')
+      'late_cancel', count(*) filter (where b.status = 'late_cancel'),
+      'cancelled_by_customer', count(*) filter (where b.status = 'cancelled_by_customer'),
+      'cancelled_by_business', count(*) filter (where b.status = 'cancelled_by_business')
     ),
     'deposits', jsonb_build_object(
       'not_required_count', count(*) filter (where b.deposit_status = 'not_required'),
@@ -158,4 +163,3 @@ $$;
 
 revoke all on function public.ai_list_bookable_slots_for_service_day(uuid, uuid, date, uuid, text) from public;
 grant execute on function public.ai_list_bookable_slots_for_service_day(uuid, uuid, date, uuid, text) to authenticated;
-
