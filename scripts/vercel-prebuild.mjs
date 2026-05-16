@@ -19,8 +19,15 @@ const vercelEnv = read('VERCEL_ENV') || 'unknown'
 const apiKey = read('VITE_GOOGLE_MAPS_API_KEY')
 const mapId = read('VITE_GOOGLE_MAPS_MAP_ID')
 
-if (!apiKey) fail('Missing VITE_GOOGLE_MAPS_API_KEY (Vercel env var).')
-if (!mapId) fail('Missing VITE_GOOGLE_MAPS_MAP_ID (Vercel env var).')
+const missing = []
+if (!apiKey) missing.push('VITE_GOOGLE_MAPS_API_KEY')
+if (!mapId) missing.push('VITE_GOOGLE_MAPS_MAP_ID')
+if (missing.length > 0) {
+  const msg = `Missing ${missing.join(', ')} (Vercel env var).`
+  if (vercelEnv === 'production') fail(msg)
+  process.stdout.write(`[vercel-prebuild] WARN: ${msg} (env=${vercelEnv})\n`)
+  process.exit(0)
+}
 
 if (vercelEnv === 'production' && mapId.toUpperCase().includes('DEMO')) {
   fail('VITE_GOOGLE_MAPS_MAP_ID production cannot be a DEMO Map ID.')
