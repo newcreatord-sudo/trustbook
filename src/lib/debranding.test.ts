@@ -27,5 +27,19 @@ describe('initDebranding', () => {
 
     expect(badge.style.display).toBe('none')
   })
-})
 
+  it('hides badge inside open shadow root', async () => {
+    document.body.innerHTML = ''
+    const host = document.createElement('div')
+    host.style.position = 'fixed'
+    document.body.appendChild(host)
+    const sr = host.attachShadow({ mode: 'open' })
+    const badge = document.createElement('div')
+    badge.textContent = 'TRAE SOLO'
+    sr.appendChild(badge)
+
+    await initDebranding()
+
+    expect(host.style.display).toBe('none')
+  })
+})
