@@ -4,6 +4,7 @@ import { CheckCircle2, Crown, Star, Zap } from 'lucide-react'
 import Card from '@/shared/ui/Card'
 import Button from '@/shared/ui/Button'
 import Alert from '@/shared/ui/Alert'
+import ActionableErrorAlert from '@/shared/ui/ActionableErrorAlert'
 import type { BusinessRow } from '@/domain/supabase'
 import {
   fetchBusinessSubscription,
@@ -13,6 +14,9 @@ import {
   type BusinessFeatureGate,
 } from '@/lib/subscriptions'
 import { commissionPreview, fetchEffectivePlatformFeePolicy, platformFeePolicy, planFeatures } from '@/lib/monetization'
+import type { ApiFailureDisplay } from '@/lib/errors'
+import { failureFromError, parseApiFailure } from '@/lib/errors'
+import { newRequestId } from '@/lib/requestId'
 
 type PlanChangeRequest = {
   id: string
@@ -34,7 +38,8 @@ export default function BusinessSubscriptionPanel(props: {
   const accessToken = props.accessToken ?? null
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ApiFailureDisplay | null>(null)
+  const [actionError, setActionError] = useState<ApiFailureDisplay | null>(null)
   const [requestingPlanId, setRequestingPlanId] = useState<string | null>(null)
   const [stripeOpeningPlanId, setStripeOpeningPlanId] = useState<string | null>(null)
   const [flash, setFlash] = useState<{ tone: 'success' | 'warning' | 'info'; text: string } | null>(null)
@@ -100,7 +105,7 @@ export default function BusinessSubscriptionPanel(props: {
         )
       } catch (e: unknown) {
         if (!active) return
-        setError(e instanceof Error ? e.message : 'Errore caricamento abbonamenti.')
+        setError(failureFromError(e, 'Errore caricamento abbonamenti'))
       } finally {
         if (active) setLoading(false)
       }
@@ -118,11 +123,14 @@ export default function BusinessSubscriptionPanel(props: {
     let cancelled = false
     ;(async () => {
       try {
+        setActionError(null)
+        const requestId = newRequestId()
         const res = await fetch('/api/subscriptions/stripe/confirm-session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
+            'X-Request-Id': requestId,
           },
           body: JSON.stringify({ sessionId, businessId: business.id }),
         })
@@ -133,15 +141,10 @@ export default function BusinessSubscriptionPanel(props: {
           setPlansReloadTick((x) => x + 1)
           onSubscriptionSynced?.()
         } else {
-          setFlash({
-            tone: 'warning',
-            text: payload?.error ?? 'Impossibile confermare il checkout; riprova o attendi la sincronizzazione.',
-          })
+          setActionError(await parseApiFailure(res, 'Checkout non confermato', payload))
         }
-      } catch {
-        if (!cancelled) {
-          setFlash({ tone: 'warning', text: 'Errore rete durante conferma checkout.' })
-        }
+      } catch (e: unknown) {
+        if (!cancelled) setActionError(failureFromError(e, 'Checkout non confermato'))
       } finally {
         if (!cancelled) {
           const next = new URLSearchParams(searchParams)
@@ -169,8 +172,9 @@ export default function BusinessSubscriptionPanel(props: {
     let active = true
     ;(async () => {
       try {
+        const requestId = newRequestId()
         const res = await fetch(`/api/subscriptions/business/change-requests?businessId=${encodeURIComponent(business.id)}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: { Authorization: `Bearer ${accessToken}`, 'X-Request-Id': requestId },
         })
         const payload = (await res.json().catch(() => null)) as { success?: boolean; rows?: unknown[] } | null
         if (!active || !payload?.success) return
@@ -256,13 +260,16 @@ export default function BusinessSubscriptionPanel(props: {
   const requestPlanChange = async (targetPlanId: string) => {
     if (!isOwner || !accessToken || requestingPlanId) return
     setFlash(null)
+    setActionError(null)
     setRequestingPlanId(targetPlanId)
     try {
+      const requestId = newRequestId()
       const res = await fetch('/api/subscriptions/business/request-change', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          'X-Request-Id': requestId,
         },
         body: JSON.stringify({
           businessId: business.id,
@@ -274,7 +281,7 @@ export default function BusinessSubscriptionPanel(props: {
         | { success?: boolean; error?: string; request?: PlanChangeRequest }
         | null
       if (!res.ok || !payload?.success) {
-        setFlash({ tone: 'warning', text: payload?.error ?? 'Richiesta piano non accettata.' })
+        setActionError(await parseApiFailure(res, 'Richiesta piano non accettata', payload))
         return
       }
       const req = payload.request
@@ -282,8 +289,8 @@ export default function BusinessSubscriptionPanel(props: {
         setRequests((prev) => [req, ...prev.filter((x) => x.id !== req.id)])
       }
       setFlash({ tone: 'success', text: 'Richiesta inviata. Il team commerciale la prenderà in carico.' })
-    } catch {
-      setFlash({ tone: 'warning', text: 'Errore rete durante invio richiesta piano.' })
+    } catch (e: unknown) {
+      setActionError(failureFromError(e, 'Richiesta piano non accettata'))
     } finally {
       setRequestingPlanId(null)
     }
@@ -292,13 +299,16 @@ export default function BusinessSubscriptionPanel(props: {
   const startStripeCheckout = async (targetPlanId: string) => {
     if (!isOwner || !accessToken || stripeOpeningPlanId) return
     setFlash(null)
+    setActionError(null)
     setStripeOpeningPlanId(targetPlanId)
     try {
+      const requestId = newRequestId()
       const res = await fetch('/api/subscriptions/business/checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          'X-Request-Id': requestId,
         },
         body: JSON.stringify({ businessId: business.id, targetPlanId }),
       })
@@ -306,15 +316,12 @@ export default function BusinessSubscriptionPanel(props: {
         | { success?: boolean; url?: string; error?: string; code?: string }
         | null
       if (!res.ok || !payload?.success || !payload.url) {
-        setFlash({
-          tone: 'warning',
-          text: payload?.error ?? `Checkout non disponibile (${res.status}).`,
-        })
+        setActionError(await parseApiFailure(res, 'Checkout non disponibile', payload))
         return
       }
       window.location.href = payload.url
-    } catch {
-      setFlash({ tone: 'warning', text: 'Errore rete durante avvio checkout Stripe.' })
+    } catch (e: unknown) {
+      setActionError(failureFromError(e, 'Checkout non disponibile'))
     } finally {
       setStripeOpeningPlanId(null)
     }
@@ -330,7 +337,8 @@ export default function BusinessSubscriptionPanel(props: {
       </div>
 
       {loading ? <Alert tone="info" className="mt-6">Caricamento piani in corso…</Alert> : null}
-      {error ? <Alert tone="danger" className="mt-6">{error}</Alert> : null}
+      {error ? <ActionableErrorAlert tone="danger" className="mt-6" error={error} /> : null}
+      {actionError ? <ActionableErrorAlert tone="warning" className="mt-4" error={actionError} /> : null}
       {!loading && !error && !currentPlan ? (
         <Alert tone="warning" className="mt-6">
           Nessun piano associato all’attività. Assegna almeno il piano Starter dal backoffice.
