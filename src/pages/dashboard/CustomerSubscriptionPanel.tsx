@@ -4,8 +4,12 @@ import { CheckCircle2, Sparkles } from 'lucide-react'
 import Card from '@/shared/ui/Card'
 import Alert from '@/shared/ui/Alert'
 import Button from '@/shared/ui/Button'
+import ActionableErrorAlert from '@/shared/ui/ActionableErrorAlert'
 import { useAuth } from '@/providers/authContext'
 import { fetchCustomerSubscription, fetchSubscriptionPlans, formatPlanPrice, parseCustomerFeatures } from '@/lib/subscriptions'
+import type { ApiFailureDisplay } from '@/lib/errors'
+import { failureFromError, parseApiFailure } from '@/lib/errors'
+import { newRequestId } from '@/lib/requestId'
 
 export default function CustomerSubscriptionPanel() {
   const { session } = useAuth()
@@ -13,8 +17,8 @@ export default function CustomerSubscriptionPanel() {
   const accessToken = session?.access_token ?? null
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [checkoutErr, setCheckoutErr] = useState<string | null>(null)
+  const [error, setError] = useState<ApiFailureDisplay | null>(null)
+  const [checkoutErr, setCheckoutErr] = useState<ApiFailureDisplay | null>(null)
   const [stripeOpeningPlanId, setStripeOpeningPlanId] = useState<string | null>(null)
   const [plans, setPlans] = useState<
     Array<{ id: string; name: string; priceLabel: string; price_cents: number; stripe_price_id: string | null; bullets: string[] }>
@@ -60,7 +64,7 @@ export default function CustomerSubscriptionPanel() {
         setPlans(selected)
       } catch (e: unknown) {
         if (!active) return
-        setError(e instanceof Error ? e.message : 'Errore caricamento piano cliente.')
+        setError(failureFromError(e, 'Errore caricamento piano cliente'))
       } finally {
         if (active) setLoading(false)
       }
@@ -78,11 +82,13 @@ export default function CustomerSubscriptionPanel() {
     let cancelled = false
     ;(async () => {
       try {
+        const requestId = newRequestId()
         const res = await fetch('/api/subscriptions/stripe/confirm-session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
+            'X-Request-Id': requestId,
           },
           body: JSON.stringify({ sessionId }),
         })
@@ -92,15 +98,10 @@ export default function CustomerSubscriptionPanel() {
           setPostCheckoutFlash({ tone: 'success', text: 'Piano aggiornato dopo il pagamento.' })
           setPlansReloadTick((x) => x + 1)
         } else {
-          setPostCheckoutFlash({
-            tone: 'warning',
-            text: payload?.error ?? 'Impossibile confermare il checkout; riprova o attendi la sincronizzazione.',
-          })
+          setCheckoutErr(await parseApiFailure(res, 'Checkout non confermato', payload))
         }
-      } catch {
-        if (!cancelled) {
-          setPostCheckoutFlash({ tone: 'warning', text: 'Errore rete durante conferma checkout.' })
-        }
+      } catch (e: unknown) {
+        if (!cancelled) setCheckoutErr(failureFromError(e, 'Checkout non confermato'))
       } finally {
         if (!cancelled) {
           const next = new URLSearchParams(searchParams)
@@ -121,11 +122,13 @@ export default function CustomerSubscriptionPanel() {
     setCheckoutErr(null)
     setStripeOpeningPlanId(targetPlanId)
     try {
+      const requestId = newRequestId()
       const res = await fetch('/api/subscriptions/customer/checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          'X-Request-Id': requestId,
         },
         body: JSON.stringify({ targetPlanId }),
       })
@@ -133,12 +136,12 @@ export default function CustomerSubscriptionPanel() {
         | { success?: boolean; url?: string; error?: string }
         | null
       if (!res.ok || !payload?.success || !payload.url) {
-        setCheckoutErr(payload?.error ?? `Checkout non disponibile (${res.status}).`)
+        setCheckoutErr(await parseApiFailure(res, 'Checkout non disponibile', payload))
         return
       }
       window.location.href = payload.url
-    } catch {
-      setCheckoutErr('Errore rete durante avvio checkout Stripe.')
+    } catch (e: unknown) {
+      setCheckoutErr(failureFromError(e, 'Checkout non disponibile'))
     } finally {
       setStripeOpeningPlanId(null)
     }
@@ -163,14 +166,10 @@ export default function CustomerSubscriptionPanel() {
         </Alert>
       ) : null}
       {error ? (
-        <Alert tone="danger" className="mt-4">
-          {error}
-        </Alert>
+        <ActionableErrorAlert tone="danger" className="mt-4" error={error} />
       ) : null}
       {checkoutErr ? (
-        <Alert tone="warning" className="mt-4">
-          {checkoutErr}
-        </Alert>
+        <ActionableErrorAlert tone="warning" className="mt-4" error={checkoutErr} />
       ) : null}
       {postCheckoutFlash ? (
         <Alert tone={postCheckoutFlash.tone === 'success' ? 'success' : 'warning'} className="mt-4">
