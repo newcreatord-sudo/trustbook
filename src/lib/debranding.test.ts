@@ -42,4 +42,16 @@ describe('initDebranding', () => {
 
     expect(host.style.display).toBe('none')
   })
+
+  it('hides badge by id', async () => {
+    document.body.innerHTML = ''
+    const badge = document.createElement('div')
+    badge.id = 'trae-badge-plugin'
+    badge.style.position = 'fixed'
+    document.body.appendChild(badge)
+
+    await initDebranding()
+
+    expect(badge.style.display).toBe('none')
+  })
 })

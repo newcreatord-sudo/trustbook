@@ -2,9 +2,14 @@ export async function initDebranding(): Promise<void> {
   if (typeof window === 'undefined' || typeof document === 'undefined') return
 
   const needles = ['TRAE SOLO']
+  const blockedIds = new Set(['trae-badge-plugin', 'trae-badge-plugin-styles'])
 
   const shouldRemove = (el: Element): boolean => {
     const t = (el.textContent || '').toUpperCase()
+    if (blockedIds.has(el.id)) return true
+    try {
+      if (el.classList.contains('trae-badge')) return true
+    } catch {}
     return needles.some((n) => t.includes(n))
   }
 
@@ -54,6 +59,10 @@ export async function initDebranding(): Promise<void> {
 
   const nukeBottomRightBadge = () => {
     try {
+      const byId = document.getElementById('trae-badge-plugin')
+      if (byId) hide(byId)
+      const byStyle = document.getElementById('trae-badge-plugin-styles')
+      if (byStyle) hide(byStyle)
       const el = document.elementFromPoint(window.innerWidth - 12, window.innerHeight - 12)
       if (!el) return
       let cur: Element | null = el
@@ -82,6 +91,9 @@ export async function initDebranding(): Promise<void> {
   } catch {}
 
   try {
+    const w = window as unknown as { TraeBadgePlugin?: { destroy?: () => void } }
+    if (w.TraeBadgePlugin?.destroy) w.TraeBadgePlugin.destroy()
+
     nukeBottomRightBadge()
     window.setTimeout(nukeBottomRightBadge, 250)
     window.setTimeout(nukeBottomRightBadge, 1000)
