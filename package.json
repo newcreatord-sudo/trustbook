@@ -128,7 +128,7 @@
     "@types/supertest": "^7.2.0",
     "@types/web-push": "^3.6.4",
     "@vercel/node": "^5.3.6",
-    "@vitejs/plugin-react": "^4.4.1",
+    "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.21",
     "babel-plugin-react-dev-locator": "^1.0.0",
     "concurrently": "^9.2.0",
