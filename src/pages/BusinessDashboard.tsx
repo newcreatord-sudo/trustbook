@@ -24,7 +24,7 @@ import type {
   ServiceRow,
 } from '@/domain/supabase'
 import { formatDateTime, formatMoneyEUR } from '@/utils/time'
-import { errorMessage } from '@/lib/errors'
+import { errorMessage, failureFromError, type ApiFailureDisplay } from '@/lib/errors'
 import { computeDepositCents, depositStatusForAmount, statusAfterBusinessAccept } from '@/lib/bookingRules'
 import { bookingStatusLabel } from '@/utils/bookingUi'
 import OwnerOnlyPanel from '@/components/OwnerOnlyPanel'
@@ -35,6 +35,7 @@ import BookingQuickRow from '@/pages/dashboard/BookingQuickRow'
 import BookingInternalNote from '@/pages/dashboard/BookingInternalNote'
 import CustomerTags from '@/pages/dashboard/CustomerTags'
 import BookingTimeline from '@/pages/dashboard/BookingTimeline'
+import ActionableErrorAlert from '@/shared/ui/ActionableErrorAlert'
 
 const BusinessAiSuggestionsPanel = lazy(() => import('@/pages/dashboard/BusinessAiSuggestionsPanel'))
 const MultiBusinessOverviewPanel = lazy(() => import('@/pages/dashboard/MultiBusinessOverviewPanel'))
@@ -122,6 +123,7 @@ export default function BusinessDashboard() {
   >({})
   const [customerProfiles, setCustomerProfiles] = useState<Record<string, Pick<ProfileRow, 'first_name' | 'last_name' | 'phone'>>>({})
   const [error, setError] = useState<string | null>(null)
+  const [errorDetail, setErrorDetail] = useState<ApiFailureDisplay | null>(null)
   const [flash, setFlash] = useState<{ kind: 'success' | 'info'; message: string } | null>(null)
 
   const [bookingFilter, setBookingFilter] = useState<BookingFilterKey>('pending')
@@ -207,6 +209,8 @@ export default function BusinessDashboard() {
     let mounted = true
 
     setLoadingBusinesses(true)
+    setError(null)
+    setErrorDetail(null)
 
     ;(async () => {
       try {
@@ -254,6 +258,7 @@ export default function BusinessDashboard() {
       } catch (e: unknown) {
         if (!mounted) return
         setError(errorMessage(e, 'Errore caricamento attività.'))
+        setErrorDetail(failureFromError(e, 'Errore caricamento attività.'))
       } finally {
         if (mounted) setLoadingBusinesses(false)
       }
@@ -313,6 +318,8 @@ export default function BusinessDashboard() {
     let mounted = true
 
     setLoadingBookings(true)
+    setError(null)
+    setErrorDetail(null)
     setBookingsTruncated(false)
     setDashboardBookingKpis(null)
     setBookings([])
@@ -493,6 +500,7 @@ export default function BusinessDashboard() {
       } catch (e: unknown) {
         if (!mounted) return
         setError(errorMessage(e, 'Errore caricamento prenotazioni.'))
+        setErrorDetail(failureFromError(e, 'Errore caricamento prenotazioni.'))
       } finally {
         if (mounted) setLoadingBookings(false)
       }
@@ -1081,7 +1089,15 @@ export default function BusinessDashboard() {
               </div>
             ) : null}
 
-            {error && <Alert className="mt-4" tone="danger">{error}</Alert>}
+            {error ? (
+              errorDetail ? (
+                <ActionableErrorAlert className="mt-4" failure={errorDetail} />
+              ) : (
+                <Alert className="mt-4" tone="danger">
+                  {error}
+                </Alert>
+              )
+            ) : null}
 
             {businesses.length > 0 ? (
               <div className="mt-4 space-y-2">
