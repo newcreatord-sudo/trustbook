@@ -35,6 +35,7 @@ import BookingQuickRow from '@/pages/dashboard/BookingQuickRow'
 import BookingInternalNote from '@/pages/dashboard/BookingInternalNote'
 import CustomerTags from '@/pages/dashboard/CustomerTags'
 import BookingTimeline from '@/pages/dashboard/BookingTimeline'
+import DashboardOperationalPriorityStrip from '@/pages/dashboard/DashboardOperationalPriorityStrip'
 
 const BusinessAiSuggestionsPanel = lazy(() => import('@/pages/dashboard/BusinessAiSuggestionsPanel'))
 const MultiBusinessOverviewPanel = lazy(() => import('@/pages/dashboard/MultiBusinessOverviewPanel'))
@@ -66,6 +67,47 @@ import { safeParseBookingRow } from '@/domain/parse'
 const DASHBOARD_BOOKINGS_PAGE_SIZE = 1000
 const DASHBOARD_BOOKINGS_PARALLEL_PAGES = 3
 
+type KpiCoverageSnapshot = { ok: number; total: number; pct: number }
+type KpiCoverageState = { v: 1; seen: Record<string, 0 | 1> }
+
+function readKpiCoverageState(): KpiCoverageState {
+  try {
+    if (typeof window === 'undefined') return { v: 1, seen: {} }
+    const raw = window.localStorage.getItem('tb_kpi_coverage_v1')
+    if (!raw) return { v: 1, seen: {} }
+    const parsed = JSON.parse(raw) as Partial<KpiCoverageState>
+    if (!parsed || parsed.v !== 1 || typeof parsed.seen !== 'object' || parsed.seen === null) return { v: 1, seen: {} }
+    return { v: 1, seen: parsed.seen as Record<string, 0 | 1> }
+  } catch {
+    return { v: 1, seen: {} }
+  }
+}
+
+function writeKpiCoverageState(state: KpiCoverageState): void {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('tb_kpi_coverage_v1', JSON.stringify(state))
+  } catch {
+    return
+  }
+}
+
+function updateKpiCoverageSnapshot(businessId: string, hasServerKpis: boolean): KpiCoverageSnapshot | null {
+  try {
+    const state = readKpiCoverageState()
+    state.seen[businessId] = hasServerKpis ? 1 : 0
+    writeKpiCoverageState(state)
+    const entries = Object.values(state.seen)
+    const total = entries.length
+    if (total <= 0) return null
+    const ok = entries.reduce((acc, v) => acc + (v === 1 ? 1 : 0), 0)
+    const pct = Math.round((ok * 1000) / total) / 10
+    return { ok, total, pct }
+  } catch {
+    return null
+  }
+}
+
 const DASHBOARD_TAB_KEYS = [
   'tutte',
   'panoramica',
@@ -81,6 +123,16 @@ const DASHBOARD_TAB_KEYS = [
 ] as const
 
 type DashboardTabKey = (typeof DASHBOARD_TAB_KEYS)[number]
+
+/** Tab dove serve tenere KPI operativi a vista durante il lavoro (non nei form di configurazione lunga). */
+const DASHBOARD_OPERATIONAL_PRIORITY_TAB_KEYS = new Set<DashboardTabKey>([
+  'tutte',
+  'panoramica',
+  'prenotazioni',
+  'calendario',
+  'direzione',
+  'notifiche',
+])
 
 function isDashboardTabKey(v: string | null): v is DashboardTabKey {
   return v !== null && (DASHBOARD_TAB_KEYS as readonly string[]).includes(v)
@@ -116,6 +168,7 @@ export default function BusinessDashboard() {
   /** Ultima pagina “piena”: potrebbero esistere prenotazioni più vecchie non caricate → KPI storici potenzialmente incompleti */
   const [bookingsTruncated, setBookingsTruncated] = useState(false)
   const [dashboardBookingKpis, setDashboardBookingKpis] = useState<DashboardBookingKpis | null>(null)
+  const [kpiCoverageSnapshot, setKpiCoverageSnapshot] = useState<KpiCoverageSnapshot | null>(null)
   const [loadingBookings, setLoadingBookings] = useState(false)
   const [reliability, setReliability] = useState<
     Record<string, { score: number; stars: number; noShowCount: number; lateCancelCount: number }>
@@ -173,6 +226,30 @@ export default function BusinessDashboard() {
     },
     [setSearchParams],
   )
+
+  const goOperationalPendingBookings = useCallback(() => {
+    goToTab('prenotazioni')
+    setBookingView('all')
+    setBookingFilter('pending')
+    setBookingQuery('')
+  }, [goToTab])
+
+  const goOperationalDepositBookings = useCallback(() => {
+    goToTab('prenotazioni')
+    setBookingView('all')
+    setBookingFilter('deposit')
+    setBookingQuery('')
+  }, [goToTab])
+
+  const goOperationalTodayBookings = useCallback(() => {
+    goToTab('prenotazioni')
+    setBookingView('today')
+    setBookingQuery('')
+  }, [goToTab])
+
+  const goOperationalCalendar = useCallback(() => {
+    goToTab('calendario')
+  }, [goToTab])
 
   useEffect(() => {
     if (!urlTab) return
@@ -390,6 +467,9 @@ export default function BusinessDashboard() {
           parsedKpis = !k2.error && k2.data ? parseDashboardBookingKpis(k2.data) : null
         }
         if (mounted) setDashboardBookingKpis(parsedKpis)
+        if (mounted) {
+          setKpiCoverageSnapshot(updateKpiCoverageSnapshot(activeBusinessId, Boolean(parsedKpis)))
+        }
 
         const mergedMap = new Map<string, BookingRow>()
         for (const br of bookingsPagesRes) {
@@ -1161,6 +1241,19 @@ export default function BusinessDashboard() {
             </Card>
           ) : activeBusiness ? (
             <Suspense fallback={<DashboardTabSkeleton />}>
+              <>
+              {DASHBOARD_OPERATIONAL_PRIORITY_TAB_KEYS.has(tab) ? (
+                <DashboardOperationalPriorityStrip
+                  todayTooltip={bookingSummary.todayTooltip}
+                  todayCount={bookingSummary.today}
+                  pendingCount={bookingSummary.pending}
+                  depositCount={bookingSummary.deposit}
+                  onGoTodayBookings={goOperationalTodayBookings}
+                  onGoPending={goOperationalPendingBookings}
+                  onGoDeposits={goOperationalDepositBookings}
+                  onGoCalendar={goOperationalCalendar}
+                />
+              ) : null}
               {tab === 'tutte' ? (
               <MultiBusinessOverviewPanel
                 businesses={businesses}
@@ -1308,6 +1401,13 @@ export default function BusinessDashboard() {
                           incompleti ad alto volume.
                         </>
                       )}
+                      {kpiCoverageSnapshot ? (
+                        <div className="mt-2 text-[11px] text-white/55">
+                          Copertura KPI DB (attività visitate su questo browser):{' '}
+                          <span className="text-white">{kpiCoverageSnapshot.ok}</span>/{kpiCoverageSnapshot.total} (
+                          {kpiCoverageSnapshot.pct}%)
+                        </div>
+                      ) : null}
                     </Alert>
                   ) : null}
 
@@ -2504,6 +2604,7 @@ export default function BusinessDashboard() {
               </Card>
             )
             }
+              </>
             </Suspense>
           ) : (
             <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
