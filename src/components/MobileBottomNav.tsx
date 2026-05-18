@@ -113,9 +113,7 @@ export default function MobileBottomNav({ role, notifCount = 0 }: Props) {
       aria-label="Navigazione principale mobile"
       role="navigation"
       className={cn(
-        'fixed inset-x-0 bottom-0 z-30 md:hidden',
-        'border-t border-white/10 bg-[#0a111d]/92 backdrop-blur-xl',
-        'shadow-[0_-8px_24px_rgba(0,0,0,0.45)]',
+        'fixed inset-x-0 bottom-0 z-30 md:hidden tb-mobile-dock',
         'pb-[env(safe-area-inset-bottom)]',
       )}
     >
@@ -130,7 +128,7 @@ export default function MobileBottomNav({ role, notifCount = 0 }: Props) {
                 aria-label={t.badge ? `${t.label}, ${t.badge} non lette` : t.label}
                 className={cn(
                   'relative flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-semibold tracking-tight',
-                  'transition-colors duration-150 ease-out',
+                  'transition-colors duration-tb-fast ease-tb-standard',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/55 focus-visible:ring-inset',
                   active ? 'text-white' : 'text-white/65 hover:text-white',
                 )}

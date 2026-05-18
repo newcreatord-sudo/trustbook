@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "client:dev": "vite",
     "build": "node ./scripts/vercel-prebuild.mjs && tsc -b && vite build",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "typecheck": "npm run check",
@@ -30,7 +33,7 @@
     "auth:templates:push": "node ./scripts/push-auth-email-templates.mjs --live",
     "auth:templates:sync": "node ./scripts/push-auth-email-templates.mjs --live --verify",
     "setup:auth-complete": "node ./scripts/setup-auth-complete.mjs",
-    "verify:repo": "npm run lint && npm run check && npm run test && npm run build",
+    "verify:repo": "npm run lint && npm run check && npm run check:migrations:integrity && npm run check:tests:integrity && npm run test && npm run build && npm run check:bundle:google-maps",
     "api:verify-auth-email": "node ./scripts/verify-auth-email-api.mjs",
     "api:verify-auth-email:staging": "node ./scripts/verify-auth-email-api.mjs --env-file=.env.staging",
     "api:verify-auth-email:production": "node ./scripts/verify-auth-email-api.mjs --env-file=.env.production",
@@ -66,7 +69,7 @@
     "check:business-dashboard:bootstrap": "node ./scripts/check-business-dashboard-bootstrap-budget.mjs",
     "test:business-dashboard:perf": "vitest run src/pages/BusinessDashboard.bootstrapPerf.test.tsx",
     "check:bundle:google-maps": "node ./scripts/check-google-maps-bundle-budget.mjs",
-    "verify:local:strict": "npm run check && npm run lint && npm run check:tests:integrity && npm run check:business-dashboard:bootstrap && npm run test:business-dashboard:perf && npm run test:onboarding-policy-guard && npm run test:qa:flows && npm run test:critical-owner-onboarding && npm test && npm run build && npm run check:bundle:google-maps",
+    "verify:local:strict": "npm run check && npm run lint && npm run check:tests:integrity && npm run check:migrations:integrity && npm run check:business-dashboard:bootstrap && npm run test:business-dashboard:perf && npm run test:onboarding-policy-guard && npm run test:qa:flows && npm run test:critical-owner-onboarding && npm test && npm run build && npm run check:bundle:google-maps",
     "gate:release": "node ./scripts/release-gate.mjs",
     "gate:release:strict": "node ./scripts/release-gate.mjs --strict-db",
     "release:hardened": "node ./scripts/release-hardened.mjs",

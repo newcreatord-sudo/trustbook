@@ -42,3 +42,9 @@ supabase/.temp/
 
 # Local artifacts (may contain cert chain / audit exports)
 artifacts/
+
+# Test/coverage artifacts
+coverage/
+test-results/
+playwright-report/
+

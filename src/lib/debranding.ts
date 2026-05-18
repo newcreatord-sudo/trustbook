@@ -9,7 +9,9 @@ export async function initDebranding(): Promise<void> {
     if (blockedIds.has(el.id)) return true
     try {
       if (el.classList.contains('trae-badge')) return true
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     return needles.some((n) => t.includes(n))
   }
 
@@ -39,7 +41,9 @@ export async function initDebranding(): Promise<void> {
       target.style.setProperty('display', 'none', 'important')
       target.style.setProperty('visibility', 'hidden', 'important')
       target.style.setProperty('pointer-events', 'none', 'important')
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
 
   const scan = (root: ParentNode) => {
@@ -52,7 +56,9 @@ export async function initDebranding(): Promise<void> {
       try {
         const sr = (n as unknown as { shadowRoot?: ShadowRoot | null }).shadowRoot
         if (sr) scan(sr)
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       n = walker.nextNode() as Element | null
     }
   }
@@ -83,12 +89,16 @@ export async function initDebranding(): Promise<void> {
         }
         cur = cur.parentElement
       }
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
 
   try {
     if (document.body) scan(document.body)
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 
   try {
     const w = window as unknown as { TraeBadgePlugin?: { destroy?: () => void } }
@@ -111,5 +121,7 @@ export async function initDebranding(): Promise<void> {
       nukeBottomRightBadge()
     })
     obs.observe(document.documentElement, { childList: true, subtree: true })
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }

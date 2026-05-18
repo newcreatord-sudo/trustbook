@@ -94,7 +94,7 @@ export default function Landing() {
 
   return (
     <div className="relative isolate min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0a111d]/75 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.38)]">
+      <header className="tb-header-shell z-30">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <Link to="/" className="flex items-center gap-3 text-white transition-opacity hover:opacity-95">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#7398FF] via-[#4F7CFF] to-[#3559d8] shadow-lg shadow-[#4F7CFF]/35 ring-2 ring-white/[0.12]">

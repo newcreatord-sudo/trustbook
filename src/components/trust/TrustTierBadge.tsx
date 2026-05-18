@@ -1,7 +1,8 @@
 import { ShieldCheck, ShieldAlert, Shield, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { computeTrustTier, type TrustTier } from '@/components/trust/trustTier.logic'
 
-export type TrustTier = 'newcomer' | 'reliable' | 'verified' | 'champion' | 'at-risk' | 'blocked'
+export type { TrustTier } from '@/components/trust/trustTier.logic'
 
 type Props = {
   score: number | null | undefined
@@ -12,71 +13,6 @@ type Props = {
   /** Optional: number of no-shows; if > 0 we never show "champion". */
   noShowCount?: number | null
   className?: string
-}
-
-/**
- * Translates a reliability score (0..100) into a human-friendly tier badge.
- *
- * Why not just show the raw score: numbers without context create anxiety
- * and don't communicate progression. Tiers gamify positive behavior and
- * align with the anti-no-show engine thresholds (red/yellow/green).
- *
- *  - "newcomer"     : insufficient history (< 3 bookings)
- *  - "reliable"     : score >= 70 and no-shows <= 1
- *  - "verified"     : score >= 85 and bookings >= 5
- *  - "champion"     : score >= 95 and bookings >= 15 and no-shows == 0
- *  - "at-risk"      : score 50..69 or 1 recent no-show
- *  - "blocked"      : score < 50
- */
-export function computeTrustTier(input: {
-  score: number | null | undefined
-  completedBookings?: number | null
-  noShowCount?: number | null
-}): { tier: TrustTier; label: string; description: string } {
-  const s = typeof input.score === 'number' && Number.isFinite(input.score) ? input.score : null
-  const bookings = typeof input.completedBookings === 'number' ? input.completedBookings : 0
-  const noShows = typeof input.noShowCount === 'number' ? input.noShowCount : 0
-
-  if (s === null || bookings < 3) {
-    return {
-      tier: 'newcomer',
-      label: 'Nuovo',
-      description: 'Costruisci la tua reputazione: presentati alle prime prenotazioni per sbloccare i tier.',
-    }
-  }
-  if (s < 50) {
-    return {
-      tier: 'blocked',
-      label: 'Bloccato',
-      description: 'Affidabilità molto bassa: alcune attività potrebbero rifiutare la prenotazione.',
-    }
-  }
-  if (s < 70) {
-    return {
-      tier: 'at-risk',
-      label: 'A rischio',
-      description: 'Mantieni gli appuntamenti per recuperare punteggio. Le caparre potrebbero essere richieste.',
-    }
-  }
-  if (s >= 95 && bookings >= 15 && noShows === 0) {
-    return {
-      tier: 'champion',
-      label: 'Campione',
-      description: 'Reputazione massima. Niente caparre quando non richieste dalla policy del business.',
-    }
-  }
-  if (s >= 85 && bookings >= 5) {
-    return {
-      tier: 'verified',
-      label: 'Verificato',
-      description: 'Storico solido. Le attività più severe ti accettano senza caparra extra.',
-    }
-  }
-  return {
-    tier: 'reliable',
-    label: 'Affidabile',
-    description: 'Buon punteggio. Continua così per accedere alle prossime soglie.',
-  }
 }
 
 const TIER_STYLE: Record<TrustTier, { ring: string; bg: string; text: string; icon: React.ReactNode }> = {

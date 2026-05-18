@@ -382,7 +382,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-white/[0.08] bg-[#0a111d]/78 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.38)]">
+      <header className="tb-header-shell">
         <div className="mx-auto max-w-6xl px-4 py-3">
           <Navbar>
             <div className="flex items-center gap-2">
@@ -433,7 +433,7 @@ export default function AppShell(props: { children: React.ReactNode }) {
                         key={t.to}
                         to={t.to}
                         className={cn(
-                          'flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold tracking-tight transition-colors duration-150',
+                          'flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold tracking-tight transition-colors duration-tb-fast ease-tb-standard',
                           active
                             ? 'bg-[#4F7CFF]/18 text-white shadow-sm shadow-black/25 ring-1 ring-[#4F7CFF]/35'
                             : 'text-white/72 hover:bg-white/[0.07] hover:text-white',

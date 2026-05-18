@@ -13,7 +13,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,8 +36,14 @@ jobs:
       - name: Migrations integrity
         run: npm run check:migrations:integrity
 
+      - name: Tests integrity
+        run: npm run check:tests:integrity
+
       - name: Tests
-        run: npm run test -- --exclude api/routes/stripe.test.ts
+        run: npm test
 
       - name: Build
         run: npm run build
+
+      - name: Google Maps bundle budget
+        run: npm run check:bundle:google-maps

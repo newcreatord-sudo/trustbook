@@ -48,11 +48,18 @@ a:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .animate-tb-fade-in,
+  .animate-tb-soft-pulse {
+    animation: none !important;
   }
 }
 
@@ -85,6 +92,12 @@ a:focus-visible,
   --tb-radius-xl: 16px;
   --tb-radius-2xl: 20px;
   --tb-radius-3xl: 24px;
+
+  --tb-motion-fast: 150ms;
+  --tb-motion-med: 220ms;
+  --tb-motion-overlay: 280ms;
+  --tb-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --tb-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -168,18 +181,31 @@ body::after {
 
 a {
   color: var(--tb-primary);
+  transition: color var(--tb-motion-fast) var(--tb-ease-standard);
 }
 
 a:hover {
   color: #7d9bff;
 }
 
-:focus-visible {
-  outline: 2px solid var(--tb-ring);
-  outline-offset: 2px;
-}
-
 @layer components {
+  .tb-mobile-dock {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: color-mix(in srgb, var(--tb-bg-deep) 92%, transparent);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  /** Header app: un solo posto invece di classi arbitrarie duplicate nei layout */
+  .tb-header-shell {
+    @apply sticky top-0 z-20 border-b border-white/[0.08] backdrop-blur-xl;
+    background: color-mix(in srgb, var(--tb-bg-deep) 76%, transparent);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 14px 42px rgba(0, 0, 0, 0.42);
+  }
+
   .tb-page {
     @apply mx-auto max-w-6xl px-4;
   }
@@ -280,6 +306,10 @@ a:hover {
   .tb-card {
     @apply rounded-3xl border border-white/10 bg-white/[0.045];
     box-shadow: var(--tb-card-shadow);
+    transition:
+      border-color var(--tb-motion-fast) var(--tb-ease-standard),
+      box-shadow var(--tb-motion-fast) var(--tb-ease-standard),
+      background-color var(--tb-motion-fast) var(--tb-ease-standard);
   }
 
   .tb-card-blur {
@@ -368,7 +398,9 @@ a:hover {
     .tb-btn,
     .tb-seg-btn,
     .tb-choice,
-    .tb-input {
+    .tb-input,
+    .tb-card,
+    .tb-link {
       @apply transition-none;
     }
     .tb-btn,
@@ -380,7 +412,11 @@ a:hover {
 
   .tb-link {
     color: #7d9bff;
-    @apply underline-offset-4 hover:text-white hover:underline;
+    text-underline-offset: 4px;
+    transition:
+      color var(--tb-motion-fast) var(--tb-ease-standard),
+      text-decoration-color var(--tb-motion-fast) var(--tb-ease-standard);
+    @apply hover:text-white hover:underline;
   }
 
   .tb-choice-active {

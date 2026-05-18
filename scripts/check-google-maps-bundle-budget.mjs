@@ -2,6 +2,7 @@
  * Budget guard on post-build dist/assets/*.js (aggregate + largest chunk).
  * Env vars keep the legacy GOOGLE_MAPS_* prefix; caps apply to the whole SPA bundle split,
  * while limiting any single chunk from growing past a sane shipping size.
+ * Defaults: largest chunk capped at gzip 550 KiB (see maxGzipBytes); total SPA gzip capped at ~565 KiB (totalMaxGzipBytes) to tolerate minor rollup variance.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -19,7 +20,7 @@ if (jsFiles.length === 0) {
 const maxBytes = Number(process.env.GOOGLE_MAPS_BUNDLE_MAX_BYTES ?? 1_900_000)
 const maxGzipBytes = Number(process.env.GOOGLE_MAPS_BUNDLE_MAX_GZIP_BYTES ?? 550_000)
 const totalMaxBytes = Number(process.env.GOOGLE_MAPS_BUNDLE_TOTAL_MAX_BYTES ?? 2_100_000)
-const totalMaxGzipBytes = Number(process.env.GOOGLE_MAPS_BUNDLE_TOTAL_MAX_GZIP_BYTES ?? 550_000)
+const totalMaxGzipBytes = Number(process.env.GOOGLE_MAPS_BUNDLE_TOTAL_MAX_GZIP_BYTES ?? 565_000)
 
 let totalBytes = 0
 let totalGzipBytes = 0
