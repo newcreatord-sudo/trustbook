@@ -276,30 +276,31 @@ export default function AppShell(props: { children: React.ReactNode }) {
   ]
 
   const activityNavItems = useMemo<Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }>>(() => {
-    const base: Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }> = [
+    const badgeGlobal = notifCount > 0 ? Math.min(99, notifCount) : 0
+
+    const baseNonDashboard: Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }> = [
       { to: '/dashboard-attivita', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
       ...(ownsBusinessActivity ? [{ to: '/pagamenti-attivita', label: 'Pagamenti', icon: <CreditCard className="h-4 w-4" /> }] : []),
       {
         to: '/notifiche',
         label: 'Notifiche',
         icon: <Bell className="h-4 w-4" />,
-        badge: notifCount > 0 ? Math.min(99, notifCount) : 0,
+        badge: badgeGlobal,
       },
       { to: '/impostazioni', label: 'Impostazioni', icon: <Settings2 className="h-4 w-4" /> },
       { to: '/profilo', label: 'Profilo', icon: <User className="h-4 w-4" /> },
     ]
 
-    if (loc.pathname !== '/dashboard-attivita') return base
+    if (loc.pathname !== '/dashboard-attivita') return baseNonDashboard
 
-    const badge = notifCount > 0 ? Math.min(99, notifCount) : 0
     const dashTabs = [
       { key: 'tutte', label: 'Tutte', icon: <Layers className="h-4 w-4" /> },
       { key: 'panoramica', label: 'Panoramica', icon: <LayoutGrid className="h-4 w-4" /> },
       { key: 'prenotazioni', label: 'Prenotazioni', icon: <ClipboardList className="h-4 w-4" /> },
       { key: 'calendario', label: 'Calendario', icon: <CalendarDays className="h-4 w-4" /> },
       { key: 'direzione', label: 'Direzione', icon: <BarChart3 className="h-4 w-4" /> },
-      { key: 'notifiche', label: 'Notifiche', icon: <Bell className="h-4 w-4" />, badge },
-      { key: 'impostazioni', label: 'Impostazioni', icon: <Settings2 className="h-4 w-4" /> },
+      { key: 'notifiche', label: 'Notifiche attività', icon: <Bell className="h-4 w-4" /> },
+      { key: 'impostazioni', label: 'Impostazioni attività', icon: <Settings2 className="h-4 w-4" /> },
       { key: 'servizi', label: 'Servizi', icon: <Briefcase className="h-4 w-4" /> },
       { key: 'orari', label: 'Orari/Ferie', icon: <Clock className="h-4 w-4" /> },
       { key: 'staff', label: 'Staff', icon: <Users className="h-4 w-4" /> },
@@ -310,10 +311,22 @@ export default function AppShell(props: { children: React.ReactNode }) {
       to: `/dashboard-attivita?tab=${t.key}`,
       label: t.label,
       icon: t.icon,
-      badge: 'badge' in t ? t.badge : undefined,
     }))
 
-    return [...dashItems, ...base]
+    /** Stesse destinazioni con nomi distinti: niente doppie voci «Notifiche» / «Impostazioni» / «Dashboard». */
+    const accountWhileInDashboard: Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }> = [
+      ...(ownsBusinessActivity ? [{ to: '/pagamenti-attivita', label: 'Pagamenti', icon: <CreditCard className="h-4 w-4" /> }] : []),
+      {
+        to: '/notifiche',
+        label: 'Centro notifiche',
+        icon: <Bell className="h-4 w-4" />,
+        badge: badgeGlobal,
+      },
+      { to: '/impostazioni', label: 'Impostazioni account', icon: <Settings2 className="h-4 w-4" /> },
+      { to: '/profilo', label: 'Profilo', icon: <User className="h-4 w-4" /> },
+    ]
+
+    return [...dashItems, ...accountWhileInDashboard]
   }, [loc.pathname, notifCount, ownsBusinessActivity])
 
   return (
@@ -387,12 +400,6 @@ export default function AppShell(props: { children: React.ReactNode }) {
                 <div className="text-white/60">
                   Ruolo: {profile?.role ?? '—'}
                 </div>
-                {profile?.role === 'cliente' && (
-                  <div className="text-white/60">Affidabilità: {myScore ?? 80}/100</div>
-                )}
-                {profile?.role === 'cliente' && (
-                  <div className="text-white/60">Stelle: {myStars ?? 0}</div>
-                )}
               </div>
             )}
 
