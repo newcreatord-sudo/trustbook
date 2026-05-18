@@ -101,8 +101,8 @@ export default function Landing() {
               <ShieldCheck className="h-4 w-4 text-white" aria-hidden />
             </div>
             <div className="leading-tight">
-              <div className="text-[15px] font-semibold tracking-tight">TrustBook</div>
-              <div className="text-[11px] font-medium text-white/70">Prenotazioni anti no-show</div>
+              <div className="text-sm font-semibold">TrustBook</div>
+              <div className="text-xs text-white/70">Prenotazioni anti no-show</div>
             </div>
           </Link>
 
