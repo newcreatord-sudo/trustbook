@@ -35,11 +35,11 @@ test.describe('Public surface — smoke', () => {
 
   test('login page is reachable', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.getByRole('heading')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/TrustBook/i)
   })
 
   test('admin route redirects when not authenticated', async ({ page }) => {
     await page.goto('/admin')
-    await expect(page).toHaveURL(/(login|^\/)/)
+    await expect(page).toHaveURL(/\/(login|start)/)
   })
 })

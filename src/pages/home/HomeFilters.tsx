@@ -70,7 +70,12 @@ export default function HomeFilters(props: {
 
           <div className="relative md:col-span-4 lg:col-span-3">
             <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-            <Select value={props.category} onChange={(e) => props.onCategoryChange(e.target.value)} className="pl-10">
+            <Select
+              aria-label="Categoria attività"
+              value={props.category}
+              onChange={(e) => props.onCategoryChange(e.target.value)}
+              className="pl-10"
+            >
               <option value="">Tutte le categorie</option>
               {props.categoryOptions.map((c) => (
                 <option key={c} value={c}>
@@ -82,7 +87,12 @@ export default function HomeFilters(props: {
 
           <div className="relative md:col-span-4 lg:col-span-3">
             <CalendarClock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-            <Select value={props.availabilityFilter} onChange={(e) => props.onAvailabilityFilterChange(e.target.value)} className="pl-10">
+            <Select
+              aria-label="Disponibilità calendario"
+              value={props.availabilityFilter}
+              onChange={(e) => props.onAvailabilityFilterChange(e.target.value)}
+              className="pl-10"
+            >
               <option value="">Qualsiasi disponibilità</option>
               <option value="today">Aperto oggi</option>
               <option value="tomorrow">Aperto domani</option>
@@ -91,7 +101,12 @@ export default function HomeFilters(props: {
 
           <div className="relative md:col-span-4 lg:col-span-2">
             <Euro className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-            <Select value={props.priceFilter} onChange={(e) => props.onPriceFilterChange(e.target.value)} className="pl-10">
+            <Select
+              aria-label="Fascia di prezzo"
+              value={props.priceFilter}
+              onChange={(e) => props.onPriceFilterChange(e.target.value)}
+              className="pl-10"
+            >
               <option value="">Prezzo</option>
               <option value="low">Fino a 25€</option>
               <option value="medium">25€ - 60€</option>
@@ -114,6 +129,7 @@ export default function HomeFilters(props: {
 
           <div className="md:col-span-4 lg:col-span-3">
             <Select
+              aria-label="Distanza massima dalla posizione"
               value={props.maxDistanceKm === null ? '' : String(props.maxDistanceKm)}
               onChange={(e) => {
                 const v = e.target.value
@@ -132,11 +148,7 @@ export default function HomeFilters(props: {
           </div>
 
           <div className="md:col-span-4 lg:col-span-6">
-            <Select
-              value={props.sort}
-              onChange={(e) => props.onSortChange(e.target.value as BusinessSortKey)}
-              className="text-sm"
-            >
+            <Select aria-label="Ordinamento risultati" value={props.sort} onChange={(e) => props.onSortChange(e.target.value as BusinessSortKey)} className="text-sm">
               <option value="newest">Ordina: Novità</option>
               <option value="rating">Ordina: Valutazione</option>
               <option value="relevance">Ordina: Pertinenza</option>

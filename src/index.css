@@ -82,8 +82,9 @@ a:focus-visible,
   --tb-text: #e8ecf4;
   --tb-muted: rgba(255, 255, 255, 0.78);
   --tb-muted-2: rgba(255, 255, 255, 0.7);
-  --tb-primary: #4f7cff;
-  --tb-primary-hover: #6a90ff;
+  /* WCAG 2 AA: white text ≥4.5:1 on interactive (normal 14px) */
+  --tb-primary: #2a52d6;
+  --tb-primary-hover: #3f68ea;
   --tb-ring: rgba(79, 124, 255, 0.5);
   --tb-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
   --tb-card-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.07) inset, 0 18px 48px rgba(0, 0, 0, 0.38);

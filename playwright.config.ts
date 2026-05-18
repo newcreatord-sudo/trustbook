@@ -3,13 +3,20 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * Playwright E2E configuration.
  *
- *  - Targets dev server on :5173 unless `E2E_BASE_URL` is set (preview URL on
- *    CI for staging smoke tests).
- *  - 3 retries on CI, 0 in local dev.
- *  - HTML reporter for human review, JSON for CI dashboards.
+ * - Local dev: `npm run e2e` → Vite dev server (default :5173).
+ * - CI / production-like: `npm run e2e:ci` → serves `dist/` via `vite preview`
+ *   (requires `npm run build` first). Set `E2E_USE_PREVIEW=1` locally to match CI.
+ * - Override base URL with `E2E_BASE_URL` (staging smoke); disables webServer.
  */
+
+const isCi = process.env.CI === 'true'
+const usePreviewServer = isCi || process.env.E2E_USE_PREVIEW === '1'
 const PORT = Number(process.env.PORT ?? 5173)
-const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`
+const PREVIEW_HOST = '127.0.0.1'
+const BASE_URL =
+  process.env.E2E_BASE_URL ??
+  (usePreviewServer ? `http://${PREVIEW_HOST}:${PORT}` : `http://localhost:${PORT}`)
+const previewReadyUrl = `http://${PREVIEW_HOST}:${PORT}`
 
 export default defineConfig({
   testDir: './e2e',
@@ -29,16 +36,26 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile-safari', use: { ...devices['iPhone 14'] } },
-  ],
+  /** CI: Chromium only (faster, no WebKit install). Local: desktop + mobile Safari. */
+  projects: isCi
+    ? [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
+    : [
+        { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+        { name: 'mobile-safari', use: { ...devices['iPhone 14'] } },
+      ],
   webServer: process.env.E2E_BASE_URL
     ? undefined
-    : {
-        command: 'npm run client:dev',
-        url: BASE_URL,
-        timeout: 120_000,
-        reuseExistingServer: !process.env.CI,
-      },
+    : usePreviewServer
+      ? {
+          command: `npx vite preview --host ${PREVIEW_HOST} --strictPort --port ${PORT}`,
+          url: previewReadyUrl,
+          timeout: 120_000,
+          reuseExistingServer: !isCi,
+        }
+      : {
+          command: 'npm run client:dev',
+          url: BASE_URL,
+          timeout: 120_000,
+          reuseExistingServer: !process.env.CI,
+        },
 })

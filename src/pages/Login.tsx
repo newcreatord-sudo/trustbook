@@ -214,7 +214,7 @@ export default function Login() {
             <ShieldCheck className="h-5 w-5 text-white" />
           </div>
           <div>
-            <div className="tb-title">TrustBook</div>
+            <h1 className="tb-title">TrustBook</h1>
             <div className="tb-subtitle">Prenotazioni serie, meno no-show.</div>
           </div>
         </div>
